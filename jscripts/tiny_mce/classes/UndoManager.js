@@ -194,7 +194,25 @@
 			 */
 			hasRedo : function() {
 				return index < data.length - 1 && !this.typing;
-			}
+			},
+
+            // ATLASSIAN this is handy for debugging when you need it.
+            // getData : function() { return data; },
+
+            // ATLASSIAN our own very simple naive version of the TinyMCE 4 transact method.
+            /**
+             * Saves the state of the undoManager, executes the provided function, then restores
+             * the state. Implicit and explicit changes to the undomanager will all be
+             * effectively ignored.
+             *
+             * @param operation
+             * @param target optional target
+             */
+            ignore : function(operation, target) {
+                var dataState = data.slice();
+                operation.call(target || editor);
+                data = dataState;
+            }
 		};
 	};
 })(tinymce);

@@ -33,11 +33,13 @@ tinymce.onAddEditor.add(function(tinymce, ed) {
 				});
 			},
 
+/* ATLASSIAN: we want to keep 'U' tags and not convert them. <U> is semantically better than a SPAN with inline style.
 			u : function(dom, node) {
 				replaceWithSpan(node, {
 					textDecoration : 'underline'
 				});
 			},
+*/
 
 			strike : function(dom, node) {
 				replaceWithSpan(node, {
@@ -50,7 +52,7 @@ tinymce.onAddEditor.add(function(tinymce, ed) {
 			dom = editor.dom;
 
 			if (settings.convert_fonts_to_spans) {
-				tinymce.each(dom.select('font,u,strike', params.node), function(node) {
+				tinymce.each(dom.select('font,strike', params.node), function(node) { // ATLASSIAN - Don't do 'U'
 					filters[node.nodeName.toLowerCase()](ed.dom, node);
 				});
 			}

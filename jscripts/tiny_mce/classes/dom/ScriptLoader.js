@@ -67,8 +67,10 @@
 			
 			function error() {
 				// Report the error so it's easier for people to spot loading errors
-				if (typeof(console) !== "undefined" && console.log)
-					console.log("Failed to load: " + url);
+                // CONF-22176 Switch to using AJS.log instead
+				//if (typeof(console) !== "undefined" && console.log)
+				//	console.log("Failed to load: " + url);
+                AJS.log("Failed to load: " + url);
 
 				// We can't mark it as done if there is a load error since
 				// A) We don't want to produce 404 errors on the server and

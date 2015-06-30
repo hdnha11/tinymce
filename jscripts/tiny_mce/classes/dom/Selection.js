@@ -202,7 +202,29 @@
 					} else {
 						// createContextualFragment doesn't exists in IE 9 DOMRanges
 						if (rng.createContextualFragment) {
-							rng.insertNode(rng.createContextualFragment(content));
+							try {
+								rng.insertNode(rng.createContextualFragment(content));
+							} catch (e) {
+								// Atlassian - CONF-26019
+								// Webkit can throw an exception that can be recovered from in some corner cases
+								if (rng.startOffset === 0 && rng.endOffset === 0 && rng.startContainer.children.length === 0) {
+									frag = doc.createDocumentFragment();
+									temp = doc.createElement('div');
+
+									//outerHTML doesn't work
+									temp.innerHTML = content;
+									temp = temp.children[0];
+									frag.appendChild(temp.cloneNode());
+									while(temp = temp.nextSibling) {
+										frag.appendChild(temp.cloneNode());
+									}
+
+									rng.startContainer.parentNode.insertBefore(frag, rng.startContainer);
+								} else {
+									//something is actually wrong
+									throw(e);
+								}
+							}
 						} else {
 							// Fake createContextualFragment call in IE 9
 							frag = doc.createDocumentFragment();
@@ -245,7 +267,7 @@
 					rng.pasteHTML('<span id="__mce_tmp">_</span>' + content);
 					self.dom.remove('__mce_tmp');
 				} else
-					rng.pasteHTML(content);
+				rng.pasteHTML(content);
 			}
 
 			// Dispatch set content event
@@ -366,7 +388,8 @@
 
 			if (type == 2) {
 				function getLocation() {
-					var rng = t.getRng(true), root = dom.getRoot(), bookmark = {};
+					//CONFDEV-6472 Bookmark indexes should start from the body
+					var rng = t.getRng(true), root = dom.doc.body, bookmark = {};
 
 					function getPoint(rng, start) {
 						var container = rng[start ? 'startContainer' : 'endContainer'],
@@ -497,7 +520,8 @@
 			if (bookmark) {
 				if (bookmark.start) {
 					rng = dom.createRng();
-					root = dom.getRoot();
+					//CONFDEV-6472 Bookmark indexes should start from the body
+					root = dom.doc.body;
 
 					function setEndPoint(start) {
 						var point = bookmark[start ? 'start' : 'end'], i, node, offset, children;
@@ -758,12 +782,18 @@
 			}
 
 			// We have W3C ranges and it's IE then fake control selection since IE9 doesn't handle that correctly yet
-			if (tinymce.isIE && r && r.setStart && doc.selection.createRange().item) {
-				elm = doc.selection.createRange().item(0);
-				r = doc.createRange();
-				r.setStartBefore(elm);
-				r.setEndAfter(elm);
-			}
+            try {
+                if (tinymce.isIE && r && r.setStart && doc.selection && doc.selection.createRange().item) {
+                    elm = doc.selection.createRange().item(0);
+                    r = doc.createRange();
+                    r.setStartBefore(elm);
+                    r.setEndAfter(elm);
+                }
+            } catch (e) {
+                // ATLASSIAN - CONF-24571
+                // IE can fail here on doc.selection.createRange() call with "Unexpected call to method or property access.".
+                // Just IE being normal, buggy IE. Ignoring seems to have the desired effect.
+            }
 
 			// No range found then create an empty one
 			// This can occur when the editor is placed in a hidden container element on Gecko
@@ -804,9 +834,17 @@
 						s.removeAllRanges();
 					} catch (ex) {
 						// IE9 might throw errors here don't know why
+                        AJS.logError('Exception occurred at tinymce setRng() - removeAllRanges(): ' + ex);
 					}
 
-					s.addRange(r);
+                    try {
+                        s.addRange(r);
+                    }
+                    catch (ex) {
+                        // IE11 might throw errors when setting ranges.
+                        AJS.logError('Exception occurred at tinymce setRng() - addRange(): ' + ex);
+                    }
+
 					// adding range isn't always successful so we need to check range count otherwise an exception can occur
 					t.selectedRange = s.rangeCount > 0 ? s.getRangeAt(0) : null;
 				}
@@ -818,6 +856,7 @@
 						return;
 					} catch (ex) {
 						//IE9 throws an error here if called before selection is placed in the editor
+                        AJS.logError('Exception occurred at tinymce setRng() - tridentSel.addRange(): ' + ex);
 					}
 				}
 
@@ -826,6 +865,7 @@
 					r.select();
 				} catch (ex) {
 					// Needed for some odd IE bug #1843306
+                    AJS.logError('Exception occurred at tinymce setRng() - select(): ' + ex);
 				}
 			}
 		},
@@ -972,6 +1012,11 @@
 						container = container.childNodes[Math.min(!start && offset > 0 ? offset - 1 : offset, container.childNodes.length - 1)];
 						offset = 0;
 
+                        // ATLASSIAN - don't normalize if caret before a table
+                        if(container.nodeName === 'TABLE') {
+                            return;
+                        }
+
 						// Don't walk into elements that doesn't have any child nodes like a IMG
 						if (container.hasChildNodes()) {
 							// Walk the DOM to find a text node to place the caret at or a BR
@@ -1014,7 +1059,9 @@
 			// Normalize the end points
 			normalizeEndPoint(true);
 
-			if (!rng.collapsed)
+//			if (!rng.collapsed)
+            // ATLASSIAN - only normalize end point if start was normalized
+			if (rng.collapsed && normalized)
 				normalizeEndPoint();
 
 			// Set the selection if it was normalized
@@ -1079,7 +1126,11 @@
 
 			// Removes listeners
 			function endSelection() {
-				var rng = doc.selection.createRange();
+				// CONF-31610 - IE11 has deprecated support for 'selection'
+				// http://msdn.microsoft.com/en-us/library/ie/ms535869(v=vs.85).aspx
+				var rng = doc.selection ?
+					doc.selection.createRange() :
+                    tinyMCE.activeEditor.getBody().createTextRange();
 
 				// If the range is collapsed then use the last start range
 				if (startRng && !rng.item && rng.compareEndPoints('StartToEnd', rng) === 0)

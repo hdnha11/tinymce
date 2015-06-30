@@ -21,7 +21,12 @@
 		Dispatcher = tinymce.util.Dispatcher, undefined, instanceCounter = 0;
 
 	// Setup some URLs where the editor API is located and where the document is
-	tinymce.documentBaseURL = window.location.href.replace(/[\?#].*$/, '').replace(/[\/\\][^\/]+$/, '');
+	//tinymce.documentBaseURL = window.location.href.replace(/[\?#].*$/, '').replace(/[\/\\][^\/]+$/, '');
+    //ATLASSIAN - Use the TinyMCE plugin url as the document base
+    // Setup some URLs where the editor API is located and where the document is
+    tinymce.documentBaseURL =  tinymce.baseURL;
+    AJS.debug("tinymce.documentBaseURL = " + tinymce.documentBaseURL);
+
 	if (!/[\/\\]$/.test(tinymce.documentBaseURL))
 		tinymce.documentBaseURL += '/';
 
@@ -141,7 +146,9 @@
 			t.settings = s;
 
 			// Legacy call
-			Event.add(document, 'init', function() {
+            // ATLASSIAN - In tinyMCE the following block is added as an onInit event for "legacy" reasons that don't
+            // apply to us, so we just execute it.
+			function performInit() {
 				var l, co;
 
 				execCallback(s, 'onpageload');
@@ -226,7 +233,13 @@
 							execCallback(s, 'oninit');					
 					});
 				}
-			});
+			}
+
+            if(s.atlassian) {
+                performInit();
+            } else {
+    			Event.add(document, 'init', performInit);
+            }
 		},
 
 		/**

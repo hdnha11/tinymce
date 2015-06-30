@@ -202,63 +202,7 @@
 
 				return rng;
 			}
-			
-			function applyStyleToList(node, bookmark, wrapElm, newWrappers, process){
-				var nodes = [], listIndex = -1, list, startIndex = -1, endIndex = -1, currentWrapElm;
-				
-				// find the index of the first child list.
-				each(node.childNodes, function(n, index) {
-					if (n.nodeName === "UL" || n.nodeName === "OL") {
-						listIndex = index;
-						list = n;
-						return false;
-					}
-				});
-				
-				// get the index of the bookmarks
-				each(node.childNodes, function(n, index) {
-					if (n.nodeName === "SPAN" && dom.getAttrib(n, "data-mce-type") == "bookmark") {
-						if (n.id == bookmark.id + "_start") {
-							startIndex = index;
-						} else if (n.id == bookmark.id + "_end") {
-							endIndex = index;
-						}
-					}
-				});
-				
-				// if the selection spans across an embedded list, or there isn't an embedded list - handle processing normally
-				if (listIndex <= 0 || (startIndex < listIndex && endIndex > listIndex)) {
-					each(tinymce.grep(node.childNodes), process);
-					return 0;
-				} else {
-					currentWrapElm = wrapElm.cloneNode(FALSE);
-					
-					// create a list of the nodes on the same side of the list as the selection
-					each(tinymce.grep(node.childNodes), function(n, index) {
-						if ((startIndex < listIndex && index < listIndex) || (startIndex > listIndex && index > listIndex)) {
-							nodes.push(n); 
-							n.parentNode.removeChild(n);
-						}
-					});
-					
-					// insert the wrapping element either before or after the list.
-					if (startIndex < listIndex) {
-						node.insertBefore(currentWrapElm, list);
-					} else if (startIndex > listIndex) {
-						node.insertBefore(currentWrapElm, list.nextSibling);
-					}
-					
-					// add the new nodes to the list.
-					newWrappers.push(currentWrapElm);
 
-					each(nodes, function(node) {
-						currentWrapElm.appendChild(node);
-					});
-
-					return currentWrapElm;
-				}
-			};
-			
 			function applyRngStyle(rng, bookmark, node_specific) {
 				var newWrappers = [], wrapName, wrapElm;
 
@@ -336,9 +280,6 @@
 							}
 
 							currentWrapElm.appendChild(node);
-						} else if (nodeName == 'li' && bookmark) {
-							// Start wrapping - if we are in a list node and have a bookmark, then we will always begin by wrapping in a new element.
-							currentWrapElm = applyStyleToList(node, bookmark, wrapElm, newWrappers, process);
 						} else {
 							// Start a new wrapper for possible children
 							currentWrapElm = 0;
@@ -482,15 +423,21 @@
 			if (format) {
 				if (node) {
 					if (node.nodeType) {
-						rng = dom.createRng();
-						rng.setStartBefore(node);
-						rng.setEndAfter(node);
+					    rng = dom.createRng();
+					    rng.setStartBefore(node);
+					    rng.setEndAfter(node);
 						applyRngStyle(expandRng(rng, formatList), null, true);
 					} else {
 						applyRngStyle(node, null, true);
 					}
 				} else {
 					if (!isCollapsed || !format.inline || dom.select('td.mceSelected,th.mceSelected').length) {
+
+						// CONFDEV-32673 Formatting cannot be applied to the numbering column
+						if (dom.select('td.mceSelected.numberingColumn').length) {
+							return;
+						}
+
 						// Obtain selection node before selection is unselected by applyRngStyle()
 						var curSelNode = ed.selection.getNode();
 
@@ -627,7 +574,7 @@
 			};
 
 			function removeRngStyle(rng) {
-				var startContainer, endContainer;
+				var startContainer, endContainer, node;
 
 				rng = expandRng(rng, formatList, TRUE);
 
@@ -636,7 +583,14 @@
 					endContainer = getContainer(rng);
 
 					if (startContainer != endContainer) {
-						// Wrap start/end nodes in span element since these might be cloned/moved
+                        // WebKit will render the table incorrectly if we wrap a TD in a SPAN so lets see if the can use the first child instead
+                        // This will happen if you tripple click a table cell and use remove formatting
+                        node = startContainer.firstChild;
+                        if (startContainer.nodeName == "TD" && node) {
+                            startContainer = node;
+                        }
+
+                        // Wrap start/end nodes in span element since these might be cloned/moved
 						startContainer = wrap(startContainer, 'span', {id : '_start', 'data-mce-type' : 'bookmark'});
 						endContainer = wrap(endContainer, 'span', {id : '_end', 'data-mce-type' : 'bookmark'});
 
@@ -673,10 +627,10 @@
 			// Handle node
 			if (node) {
 				if (node.nodeType) {
-					rng = dom.createRng();
-					rng.setStartBefore(node);
-					rng.setEndAfter(node);
-					removeRngStyle(rng);
+				rng = dom.createRng();
+				rng.setStartBefore(node);
+				rng.setEndAfter(node);
+				removeRngStyle(rng);
 				} else {
 					removeRngStyle(node);
 				}
@@ -685,6 +639,12 @@
 			}
 
 			if (!selection.isCollapsed() || !format.inline || dom.select('td.mceSelected,th.mceSelected').length) {
+
+				// CONFDEV-32673 Formatting cannot be applied to the numbering column
+				if (dom.select('td.mceSelected.numberingColumn').length) {
+					return;
+				}
+
 				bookmark = selection.getBookmark();
 				removeRngStyle(selection.getRng(TRUE));
 				selection.moveToBookmark(bookmark);
@@ -697,11 +657,6 @@
 				ed.nodeChanged();
 			} else
 				performCaretAction('remove', name, vars);
-
-			// When you remove formatting from a table cell in WebKit (cell, not the contents of a cell) there is a rendering issue with column width
-			if (tinymce.isWebKit) {
-				ed.execCommand('mceCleanup');
-			}
 		};
 
 		/**
@@ -1106,7 +1061,7 @@
 				endContainer = endContainer.previousSibling || endContainer;
 
 				if (endContainer.nodeType == 3)
-					endOffset = endContainer.length;
+				endOffset = endContainer.length;
 			}
 
 			if (format[0].inline) {
@@ -1258,6 +1213,11 @@
 			if (format[0].block || format[0].selector) {
 				function findBlockEndPoint(container, sibling_name, sibling_name2) {
 					var node;
+
+					// ATLASSIAN - don't select an element higher than the root, like Document.
+					if (container == dom.getRoot()) {
+						return container;
+					}
 
 					// Expand to block of similar type
 					if (!format[0].wrapper)
@@ -1734,7 +1694,7 @@
 
 				return true;
 			};
-			
+
 			// Returns any parent caret container element
 			function getParentCaretContainer(node) {
 				while (node) {
@@ -1772,7 +1732,7 @@
 						while (node = dom.get(caretContainerId)) {
 							removeCaretContainer(node, false);
 						}
-					}
+			}
 				} else {
 					rng = selection.getRng(true);
 
@@ -1794,9 +1754,9 @@
 					}
 
 					selection.setRng(rng);
-				}
+			}
 			};
-			
+
 			// Applies formatting to the caret postion
 			function applyCaretFormat() {
 				var rng, caretContainer, textNode, offset, bookmark, container, text;
@@ -1814,7 +1774,7 @@
 				// Expand to word is caret is in the middle of a text node and the char before/after is a alpha numeric character
 				if (text && offset > 0 && offset < text.length && /\w/.test(text.charAt(offset)) && /\w/.test(text.charAt(offset - 1))) {
 					// Get bookmark of caret position
-					bookmark = selection.getBookmark();
+						bookmark = selection.getBookmark();
 
 					// Collapse bookmark range (WebKit)
 					rng.collapse(true);
@@ -1827,7 +1787,7 @@
 					apply(name, vars, rng);
 
 					// Move selection back to caret position
-					selection.moveToBookmark(bookmark);
+						selection.moveToBookmark(bookmark);
 				} else {
 					if (!caretContainer || textNode.nodeValue !== invisibleChar) {
 						caretContainer = createCaretContainer(true);
@@ -1843,7 +1803,7 @@
 
 					// Move selection to text node
 					selection.setCursorLocation(textNode, offset);
-				}
+							}
 			};
 
 			function removeCaretFormat() {
@@ -1857,7 +1817,7 @@
 				if (container.nodeType == 3) {
 					if (offset != container.nodeValue.length || container.nodeValue === invisibleChar) {
 						hasContentAfter = true;
-					}
+									}
 
 					node = node.parentNode;
 				}
@@ -1866,20 +1826,20 @@
 					if (matchNode(node, name, vars)) {
 						formatNode = node;
 						break;
-					}
+										}
 
 					if (node.nextSibling) {
 						hasContentAfter = true;
-					}
+									}
 
 					parents.push(node);
 					node = node.parentNode;
-				}
+								}
 
 				// Node doesn't have the specified format
 				if (!formatNode) {
 					return;
-				}
+								}
 
 				// Is there contents after the caret then remove the format on the element
 				if (hasContentAfter) {
@@ -1905,7 +1865,7 @@
 					for (i = parents.length - 1; i >= 0; i--) {
 						node.appendChild(parents[i].cloneNode(false));
 						node = node.firstChild;
-					}
+							}
 
 					// Insert invisible character into inner most format element
 					node.appendChild(dom.doc.createTextNode(invisibleChar));
@@ -1939,7 +1899,7 @@
 					ed[name].addToTop(function() {
 						removeCaretContainer();
 					});
-				});
+						});
 
 				// Remove caret container on keydown and it's a backspace, enter or left/right arrow keys
 				ed.onKeyDown.addToTop(function(ed, e) {
@@ -1948,10 +1908,10 @@
 					if (keyCode == 8 || keyCode == 37 || keyCode == 39) {
 						removeCaretContainer(getParentCaretContainer(selection.getStart()));
 					}
-				});
+					});
 
 				self._hasCaretEvents = true;
-			}
+				}
 
 			// Do apply or remove caret format
 			if (type == "apply") {
@@ -1964,44 +1924,45 @@
 		/**
 		 * Moves the start to the first suitable text node.
 		 */
-		function moveStart(rng) {
-			var container = rng.startContainer,
-					offset = rng.startOffset,
-					walker, node, nodes, tmpNode;
+        function moveStart(rng) {
+            var container = rng.startContainer,
+                    offset = rng.startOffset,
+                    walker, node, nodes, tmpNode;
 
-			// Convert text node into index if possible
-			if (container.nodeType == 3 && offset >= container.nodeValue.length - 1) {
-				container = container.parentNode;
-				offset = nodeIndex(container) + 1;
-			}
+            // Convert text node into index if possible
+            if (container.nodeType == 3 && offset >= container.nodeValue.length) {
+                // Get the parent container location and walk from there
+                container = container.parentNode;
+                offset = nodeIndex(container) + 1;
+            }
 
-			// Move startContainer/startOffset in to a suitable node
-			if (container.nodeType == 1) {
-				nodes = container.childNodes;
-				container = nodes[Math.min(offset, nodes.length - 1)];
-				walker = new TreeWalker(container);
+            // Move startContainer/startOffset in to a suitable node
+            if (container.nodeType == 1) {
+                nodes = container.childNodes;
+                container = nodes[Math.min(offset, nodes.length - 1)];
+                walker = new TreeWalker(container, dom.getParent(container, dom.isBlock));
 
-				// If offset is at end of the parent node walk to the next one
-				if (offset > nodes.length - 1)
-					walker.next();
+                // If offset is at end of the parent node walk to the next one
+                if (offset > nodes.length - 1)
+                    walker.next();
 
-				for (node = walker.current(); node; node = walker.next()) {
-					if (node.nodeType == 3 && !isWhiteSpaceNode(node)) {
-						// IE has a "neat" feature where it moves the start node into the closest element
-						// we can avoid this by inserting an element before it and then remove it after we set the selection
-						tmpNode = dom.create('a', null, INVISIBLE_CHAR);
-						node.parentNode.insertBefore(tmpNode, node);
+                for (node = walker.current(); node; node = walker.next()) {
+                    if (node.nodeType == 3 && !isWhiteSpaceNode(node)) {
+                        // IE has a "neat" feature where it moves the start node into the closest element
+                        // we can avoid this by inserting an element before it and then remove it after we set the selection
+                        tmpNode = dom.create('a', null, INVISIBLE_CHAR);
+                        node.parentNode.insertBefore(tmpNode, node);
 
-						// Set selection and remove tmpNode
-						rng.setStart(node, 0);
-						selection.setRng(rng);
-						dom.remove(tmpNode);
+                        // Set selection and remove tmpNode
+                        rng.setStart(node, 0);
+                        selection.setRng(rng);
+                        dom.remove(tmpNode);
 
-						return;
-					}
-				}
-			}
-		};
+                        return;
+                    }
+                }
+            }
+        };
 
 	};
 })(tinymce);

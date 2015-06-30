@@ -8,10 +8,12 @@
  * Contributing: http://tinymce.moxiecode.com/contributing
  */
 
-(function(tinymce) {
-	var each = tinymce.each;
+(function(tinymce, $) {
+	var each = tinymce.each,
+	// ATLASSIAN - if you change this here, please change it in tinymce-table-toolbar as well
+			storageManager = AJS.storageManager("atlassian.editor", "tables");
 
-	// Checks if the selection/caret is at the start of the specified block element
+    // Checks if the selection/caret is at the start of the specified block element
 	function isAtStart(rng, par) {
 		var doc = par.ownerDocument, rng2 = doc.createRange(), elm;
 
@@ -33,10 +35,9 @@
 	 * Table Grid class.
 	 */
 	function TableGrid(table, dom, selection) {
-		var grid, startPos, endPos, selectedCell;
-
+		var grid, startPos, endPos, selectedCell, i;
 		buildGrid();
-		selectedCell = dom.getParent(selection.getStart(), 'th,td');
+        selectedCell = dom.select('td.mceSelected,th.mceSelected')[0] || dom.getParent(selection.getStart(), 'th,td');
 		if (selectedCell) {
 			startPos = getPos(selectedCell);
 			endPos = findEndPos();
@@ -47,6 +48,11 @@
 			node = node.cloneNode(children);
 			node.removeAttribute('id');
 
+			// ATLASSIAN CONFDEV-31959
+			// Make sure we never copy the numbering column
+			if (children && hasNumCol()) {
+				node.removeChild(node.children[0]);
+			}
 			return node;
 		}
 
@@ -183,6 +189,9 @@
 					cell.innerHTML = '<br data-mce-bogus="1" />';
 			}
 
+			// CONFDEV-33599 Make sure we don't clone any numbering column cells
+			$(cell).attr('contenteditable', 'true').removeClass('numberingColumn');
+
 			return cell;
 		};
 
@@ -210,16 +219,35 @@
 					dom.remove(part);
 			});
 
-			// Restore selection to start position if it still exists
-			buildGrid();
-
-			// Restore the selection to the closest table position
-			row = grid[Math.min(grid.length - 1, startPos.y)];
-			if (row) {
-				selection.select(row[Math.min(row.length - 1, startPos.x)].elm, true);
-				selection.collapse(true);
-			}
+            // Restore selection to start position if it still exists
+            restoreSelection();
 		};
+
+        function restoreSelection() {
+            var row, nextCell;
+
+            buildGrid();
+
+            row = grid[Math.min(grid.length - 1, startPos.y)];
+
+            if (row) {
+                nextCell = row[Math.min(row.length - 1, startPos.x)].elm;
+
+                // Select the next cell if there is any available.
+                nextCell && positionCursorCell(nextCell);
+            }
+        }
+
+        function positionCursorCell(nodeCell) {
+            if (tinymce.isIE9 || tinymce.isIE10up){
+                selection.setCursorLocation(nodeCell, 0);
+                selection.collapse(true);
+            }
+            else{
+                selection.select(nodeCell, true);
+                selection.collapse(true);
+            }
+        }
 
 		function fillLeftDown(x, y, rows, cols) {
 			var tr, x2, r, c, cell;
@@ -277,7 +305,7 @@
 		};
 
 		function merge(cell, cols, rows) {
-			var startX, startY, endX, endY, x, y, startCell, endCell, cell, children, count;
+			var startX, startY, endX, endY, x, y, startCell, endCell, children, count;
 
 			// Use specified cell and cols/rows
 			if (cell) {
@@ -293,6 +321,12 @@
 				endX = endPos.x;
 				endY = endPos.y;
 			}
+
+			// ATLASSIAN CONFDEV-31959
+			// Prevent merging the numbering column
+			if (startX == 0 && hasNumCol()) {
+				return;
+            }
 
 			// Find start/end cells
 			startCell = getCell(startX, startY);
@@ -333,7 +367,7 @@
 										startCell.removeChild(node);
 								});
 							}
-							
+
 							// Remove cell
 							dom.remove(cell);
 						}
@@ -346,7 +380,7 @@
 		};
 
 		function insertRow(before) {
-			var posY, cell, lastCell, x, rowElm, newRow, newCell, otherCell, rowSpan;
+			var posY, cell, lastCell, x, rowElm, newRow, newCell, otherCell, rowSpan, highlightColour, isHeading;
 
 			// Find first/last row
 			each(grid, function(row, y) {
@@ -392,9 +426,30 @@
 						}
 					}
 
-					// Insert new cell into new row
-					newCell = cloneCell(cell);
-					setSpanVal(newCell, 'colSpan', cell.colSpan);
+					/**
+					 * ATLASSIAN
+					 * Insert new cell into new row (don't clone as it may be a heading that we don't want to keep)
+					 */
+					isHeading = AJS.Rte.Table.isColumnHeading($(cell).closest('table'), x + 1);
+					newCell = isHeading ? dom.create("th") : dom.create("td");
+					newCell.colSpan = cell.colSpan;
+					newCell.width = cell.width;
+					newCell.innerHTML = tinymce.isIE9 ? "" : (tinymce.isIE ? '&nbsp;' : '<br data-mce-bogus="1" />');
+                    newCell.className = cell.className;
+
+                    if(!isHeading) {
+                        // make sure if it was heading, class is correct
+                        dom.removeClass(newCell, tinymce.settings.confluence_table_heading_style);
+                        dom.addClass(newCell, tinymce.settings.confluence_table_cell_style);
+                    }
+                    highlightColour = dom.getAttrib(cell, 'data-highlight-colour');
+
+                    // only keep cell highlight if the entire column is already highlighted
+                    if (!AJS.Rte.Table.isColumnHighlighted(table, x+1)) {
+                        dom.removeClass(newCell, "highlight-" + highlightColour);
+                    } else {
+                        dom.setAttrib('data-highlight-colour', highlightColour);
+                    }
 
 					newRow.appendChild(newCell);
 
@@ -408,14 +463,38 @@
 				else
 					rowElm.parentNode.insertBefore(newRow, rowElm);
 			}
+
+			updateNumCol();
 		};
 
 		function insertCol(before) {
-			var posX, lastCell;
+			// ATLASSIAN - CONFDEV-31957
+			var posX, lastCell, cells = [];
+
+			// ATLASSIAN - custom cloneCell only clones classes
+			function cloneCell(cell) {
+				var highlightColour;
+				var newCell = dom.create(cell.tagName);
+
+				newCell.colSpan = cell.colSpan;
+				newCell.width = cell.width;
+				newCell.className = cell.className;
+				newCell.innerHTML = tinymce.isIE ? '&nbsp;' : '<br data-mce-bogus="1"/>';
+
+				// ATLASSIAN
+				highlightColour = dom.getAttrib(cell, 'data-highlight-colour');
+				if (highlightColour)
+					dom.setAttrib(newCell, 'data-highlight-colour', highlightColour);
+
+				// CONFDEV-33599 Make sure we don't clone any numbering column cells
+				$(newCell).attr('contenteditable', 'true').removeClass('numberingColumn');
+
+				return newCell;
+			};
 
 			// Find first/last column
-			each(grid, function(row, y) {
-				each(row, function(cell, x) {
+			each(grid, function (row, y) {
+				each(row, function (cell, x) {
 					if (isCellSelected(cell)) {
 						posX = x;
 
@@ -428,7 +507,13 @@
 					return !posX;
 			});
 
-			each(grid, function(row, y) {
+			// ATLASSIAN CONFDEV-31959
+			// You shouldn't be able to insert before the numbering column
+			if (posX == 0 && before && hasNumCol()) {
+				return false;
+            }
+
+			each(grid, function (row, y) {
 				var cell, rowSpan, colSpan;
 
 				if (!row[posX])
@@ -439,44 +524,152 @@
 					colSpan = getSpanVal(cell, 'colspan');
 					rowSpan = getSpanVal(cell, 'rowspan');
 
+					// ATLASSIAN - CONFDEV-31957
 					if (colSpan == 1) {
+						var newCell = cloneCell(cell);
 						if (!before) {
-							dom.insertAfter(cloneCell(cell), cell);
+							dom.insertAfter(newCell, cell);
 							fillLeftDown(posX, y, rowSpan - 1, colSpan);
 						} else {
-							cell.parentNode.insertBefore(cloneCell(cell), cell);
+							cell.parentNode.insertBefore(newCell, cell);
 							fillLeftDown(posX, y, rowSpan - 1, colSpan);
 						}
+						cells.push(newCell);
 					} else
 						setSpanVal(cell, 'colSpan', cell.colSpan + 1);
 
 					lastCell = cell;
 				}
 			});
+
+			return cells;
 		};
 
-		function deleteCols() {
-			var cols = [];
+		/**
+		 * ATLASSIAN CONFDEV-31959
+		 * Updates the numbering column. Should be called whenever a row is added or removed.
+		 */
+		function updateNumCol() {
+			if (hasNumCol()) {
+				i = 1;
+				var rowSpan = 0;
+				var rowSpanCount = 0;
 
-			// Get selected column indexes
-			each(grid, function(row, y) {
-				each(row, function(cell, x) {
-					if (isCellSelected(cell) && tinymce.inArray(cols, x) === -1) {
-						each(grid, function(row) {
-							var cell = row[x].elm, colSpan;
+				each(table.rows, function(tr, y) {
+					tr = $(tr);
 
-							colSpan = getSpanVal(cell, 'colSpan');
+					if (AJS.Rte.Table.areCellsHeadings(tr.children())) {
+						tr.children(':first')
+								.addClass('numberingColumn')
+								.attr('contenteditable', 'true');
+					} else if (rowSpanCount > 0) {
+						rowSpanCount--;
+					} else {
+						tr.children(':first')
+								.html(i)
+								.attr('contenteditable', 'false')
+								.addClass('numberingColumn');
 
-							if (colSpan > 1)
-								setSpanVal(cell, 'colSpan', colSpan - 1);
-							else
-								dom.remove(cell);
-						});
+						rowSpan = tr.children(':first').attr('rowspan');
+						if (rowSpan > 1) {
+							rowSpanCount = rowSpan - 1;
+						}
 
-						cols.push(x);
+						i++;
 					}
 				});
-			});
+			}
+		};
+
+		/**
+		 * ATLASSIAN CONFDEV-31959
+		 * Adds or removes the numbering column
+		 */
+		function toggleNumCol() {
+			if (hasNumCol()) {
+				// We already have a number column, let's get rid of it
+				each(grid, function(row) {
+					cell = row[0].elm;
+
+					if ($(cell).hasClass('numberingColumn') && cell.parentNode !== null) {
+						cell.parentNode.removeChild(cell);
+					}
+
+				});
+
+				setNumCol(false);
+			} else {
+				// Create a new column on the LHS of the table
+				var prevCell;
+				each(grid, function(row) {
+					cell = row[0].elm;
+
+					if (prevCell == cell) {
+						return;
+					}
+
+					var newCell = cloneCell(cell);
+					cell.parentNode.insertBefore(newCell, cell);
+
+					if (cell.rowSpan > 1) {
+						newCell.rowSpan = cell.rowSpan;
+					}
+
+					prevCell = cell;
+				});
+
+				setNumCol(true);
+			}
+			updateNumCol();
+		};
+
+		/**
+		 * ATLASSIAN CONFDEV-31959
+		 * @returns {Boolean} Whether the table currently has a numbering column
+		 */
+		function hasNumCol() {
+			return $(table.rows[0]).children(':first').hasClass('numberingColumn');
+		}
+
+		/**
+		 * ATLASSIAN CONFDEV-31959
+		 * Adds/removes a class to the first cell of the table indicating the presence of a numbering column
+		 * @param hasNumCol Boolean
+		 */
+		function setNumCol(hasNumCol) {
+			if (hasNumCol) {
+				$(table.rows[0]).children(':first').addClass('numberingColumn');
+			} else {
+				$(table.rows[0]).children(':first').removeClass('numberingColumn');
+			}
+		}
+
+
+        function deleteCols() {
+            var cols = [];
+
+            // Get selected column indexes
+            each(grid, function(row, y) {
+                each(row, function(cell, x) {
+                    if (isCellSelected(cell) && tinymce.inArray(cols, x) === -1) {
+                        each(grid, function(row) {
+                            // ATLASSIAN- check that the cell is present otherwise ignore
+                            if (row[x]) {
+                                var cell = row[x].elm, colSpan;
+
+                                colSpan = getSpanVal(cell, 'colSpan');
+
+                                if (colSpan > 1) {
+                                    setSpanVal(cell, 'colSpan', colSpan - 1);
+                                } else {
+                                    dom.remove(cell);
+                                }
+                            }
+                        });
+                        cols.push(x);
+                    }
+                });
+            });
 
 			cleanup();
 		};
@@ -523,19 +716,34 @@
 			// Get selected rows and move selection out of scope
 			rows = getSelectedRows();
 
-			// Delete all selected rows
+            if(tinymce.isIE9 || tinymce.isIE10) {
+                // ATLASSIAN - CONF-31548 - Before we remove any row, we move the cursor to an element that won't be removed.
+                selectParent(rows[0]);
+            }
+
+            // Delete all selected rows
 			each(rows.reverse(), function(tr) {
 				deleteRow(tr);
 			});
 
 			cleanup();
+
+			// ATLASSIAN CONFDEV-31959
+			updateNumCol();
 		};
 
 		function cutRows() {
 			var rows = getSelectedRows();
 
+            if(tinymce.isIE9 || tinymce.isIE10) {
+                // ATLASSIAN - CONF-31548 - Before we remove any row, we move the cursor to an element that won't be removed.
+                selectParent(rows[0]);
+            }
+
 			dom.remove(rows);
 			cleanup();
+
+			updateNumCol();
 
 			return rows;
 		};
@@ -578,6 +786,10 @@
 			each(rows, function(row) {
 				var cellCount = row.cells.length, cell;
 
+				// ATLASSIAN CONFDEV-31959
+				if ($(row.cells[0]).hasClass("numberingColumn"))
+					row.removeChild(row.cells[0]);
+
 				// Remove col/rowspans
 				for (i = 0; i < cellCount; i++) {
 					cell = row.cells[i];
@@ -585,13 +797,27 @@
 					setSpanVal(cell, 'rowSpan', 1);
 				}
 
+				// ATLASSIAN CONFDEV-31959
+				// Make sure we don't paste into the numbering column
+				if (hasNumCol()) {
+					row.insertBefore(row.firstChild.cloneNode(false), row.firstChild);
+					$(row.firstChild).addClass('numberingColumn');
+					cellCount++;
+				}
+
+				// Source needs more cells
+				while(targetCellCount < cellCount) {
+					/**
+					 * Atlassian - Insert a new column for each of the cells we are missing.
+					 * This stops forming unbalanced table rows and fixes a TinyMCE Bug where cells go missing on Paste.
+					 * */
+					insertCol(false);
+					targetCellCount++;
+				}
+
 				// Needs more cells
 				for (i = cellCount; i < targetCellCount; i++)
 					row.appendChild(cloneCell(row.cells[cellCount - 1]));
-
-				// Needs less cells
-				for (i = targetCellCount; i < cellCount; i++)
-					dom.remove(row.cells[i]);
 
 				// Add before/after
 				if (before)
@@ -599,7 +825,211 @@
 				else
 					dom.insertAfter(row, targetRow);
 			});
+
+			// ATLASSIAN CONFDEV-31959
+			updateNumCol();
 		};
+
+		// ATLASSIAN - CONFDEV-31957 Copy/Paste Column support
+        function copyColumns() {
+
+            var cells = {};
+            // Get selected column indexes
+            each(grid, function(row, y) {
+                each(row, function(cell, x) {
+                    if (isCellSelected(cell)) {
+                        if (!cells[x]) {
+                            cells[x] = [];
+                        }
+                    }
+                });
+            });
+
+            //Add the column cells to the copied elements
+            each(grid, function(row, y) {
+                each(row, function(cell, x) {
+                    if(cells[x]) {
+                        cells[x].push(cell.elm.innerHTML);
+                    }
+                });
+            });
+
+            return cells;
+        }
+
+		// ATLASSIAN - CONFDEV-31957 Copy/Paste Column support
+        function prepareTableForColPasteAndCheckIfNeedToRepaint(columns){
+            var numberOfRequiredRows = columns[Object.keys(columns)[0]].length;
+
+            var lastRowIndex, lastColIndex, needToRepaint = false;
+
+            each(grid, function(row, y) {
+                numberOfRequiredRows--;
+                lastRowIndex = y;
+                each(row, function(cell, x){
+                    lastColIndex = x;
+                });
+            });
+
+            if (numberOfRequiredRows > 0) {
+                needToRepaint = true;
+                //Ensure the new row(s) are pasted after the last row.
+                selectedCell = getCell(lastColIndex, lastRowIndex);
+                for (i = 0; i < numberOfRequiredRows; i++) {
+                    insertRow(false);
+                }
+            }
+
+            return needToRepaint;
+        }
+
+		// ATLASSIAN - CONFDEV-31957 Copy/Paste Column support
+        function pasteColumns(columns, before) {
+            var keys = Object.keys(columns);
+            if (!before)
+                keys.reverse();
+
+            $.each(keys, function (i, key) {
+                var cellArray = insertCol(before);
+                for(i=0; i<cellArray.length; i++) {
+                    cellArray[i].innerHTML = columns[key][i] || "";
+                }
+            });
+        }
+
+		// ATLASSIAN - CONFDEV-31957 Copy/Paste Column support
+        function cutColumns() {
+            var cells = copyColumns();
+            deleteCols();
+
+            return cells;
+        }
+
+        /**
+         * ATLASSIAN
+         */
+        function selectParent(el) {
+            if(el && el.parentNode) {
+                selection.select(el.parentNode);
+                selection.collapse(true);
+            }
+        }
+
+        /**
+         * ATLASSIAN
+         */
+         function selectCellPos(position, toStart) {
+             var cell = getCell(position.x, position.y);
+             var cellNode = cell.elm;
+         var collapseToStart = typeof(toStart) === 'undefined' ? true : toStart;
+
+             // ATLASSIAN - tabbing in IE9 doesn't work if you select the full cell
+             if ((tinymce.isGecko || tinymce.isIE) && cellNode.firstChild) {
+                 cellNode = cellNode.firstChild;
+             }
+
+            // ATLASSIAN - CONFDEV-4322, CONFDEV-12503 select doesn't work on empty table cells in IE9 or IE10. Do it manually.
+            if (tinymce.isIE9 || tinymce.isIE10up) {
+                var r1 = selection.getRng(1);
+
+                if (collapseToStart) {
+                    r1.setStart(cellNode, 0);
+                    r1.setEnd(cellNode, 0);
+                } else {
+                    r1.setStartAfter(cellNode, 0);
+                    r1.setEndAfter(cellNode, 0);
+                }
+
+                selection.setRng(r1);
+            } else {
+                selection.select(cellNode, true);
+                selection.collapse(collapseToStart);
+            }
+
+         }
+
+        /**
+         * ATLASSIAN
+         * Required when the table has been modified.
+         */
+        function updateStartPos() {
+            startPos = getPos(dom.getParent(selection.getStart(), 'th,td'));
+        }
+
+        /**
+         * ATLASSIAN
+         */
+        function moveCaretToNextCell() {
+            var nextCellPos = getNextCell();
+
+            if (!nextCellPos) {
+                insertRow(false);
+                buildGrid(); // update grid now that we have inserted a new
+                nextCellPos = getNextCell();
+            }
+            selectCellPos(nextCellPos);
+        };
+
+        /**
+         * ATLASSIAN
+         */
+        function getNextCell() {
+            var nextCellPos, gridWidth = grid[0].length;
+			if (!(startPos.x == gridWidth - 1 && startPos.y == grid.length - 1)) {
+				if (startPos.x == gridWidth - 1 && hasNumCol()) {
+					nextCellPos = {x: 1, y: startPos.y + 1};
+
+					// If the row is a heading row, we are allowed to move into the (0, y) cell
+					if (AJS.Rte.Table.areCellsHeadings($(grid[nextCellPos.y][0].elm).parent().children())) {
+						nextCellPos.x = 0;
+					}
+
+				} else if (startPos.x == gridWidth - 1) {
+					nextCellPos = {x: 0, y: startPos.y + 1};
+				} else {
+					nextCellPos = {x : startPos.x + 1, y : startPos.y};
+				}
+			}
+
+            return nextCellPos;
+        };
+
+        /**
+         * ATLASSIAN
+         */
+        function moveCaretToPrevCell() {
+            var prevCellPos = getPrevCell();
+
+            if (!prevCellPos) {
+                insertRow(true);
+                buildGrid(); // update grid now that we have inserted a new
+                updateStartPos();
+                prevCellPos = getPrevCell();
+            }
+            selectCellPos(prevCellPos, false);
+        };
+
+        /**
+         * ATLASSIAN
+         */
+        function getPrevCell() {
+            var prevCellPos, y1;
+
+            if (!(startPos.x == 0 && startPos.y == 0)) {
+				// Don't move into the first cell if the table has a numbering column, and we're not in a heading row
+                if (startPos.x == 1 && hasNumCol() && !AJS.Rte.Table.areCellsHeadings($(grid[startPos.y][0].elm).parent().children())) {
+					y1 = startPos.y - 1;
+					prevCellPos = {x: grid[y1].length - 1, y: y1};
+				} else if (startPos.x > 0) {
+					prevCellPos = {x: startPos.x - 1, y: startPos.y};
+                } else {
+                    y1 = startPos.y - 1;
+                    prevCellPos = {x : grid[y1].length - 1, y : y1};
+                }
+            }
+
+            return prevCellPos;
+        };
 
 		function getPos(target) {
 			var pos;
@@ -739,6 +1169,8 @@
 			merge : merge,
 			insertRow : insertRow,
 			insertCol : insertCol,
+			insertNumCol: toggleNumCol,
+			updateNumCol: updateNumCol,
 			deleteCols : deleteCols,
 			deleteRows : deleteRows,
 			cutRows : cutRows,
@@ -746,16 +1178,29 @@
 			pasteRows : pasteRows,
 			getPos : getPos,
 			setStartCell : setStartCell,
-			setEndCell : setEndCell
+			setEndCell : setEndCell,
+            /**
+             * ATLASSIAN API additions
+             */
+            moveCaretToNextCell : moveCaretToNextCell,
+            moveCaretToPrevCell : moveCaretToPrevCell,
+            cutColumns : cutColumns,
+            copyColumns: copyColumns,
+            pasteColumns: pasteColumns,
+            prepareTableForColPasteAndCheckIfNeedToRepaint : prepareTableForColPasteAndCheckIfNeedToRepaint
+
 		});
 	};
 
 	tinymce.create('tinymce.plugins.TablePlugin', {
 		init : function(ed, url) {
-			var winMan, clipboardRows, hasCellSelection = true; // Might be selected cells on reload
+			var winMan, clipboardRows, clipboardColumns, hasCellSelection = true; // Might be selected cells on reload
 
 			function createTableGrid(node) {
-				var selection = ed.selection, tblElm = ed.dom.getParent(node || selection.getNode(), 'table');
+                // ATLASSIAN CONF-6919 - getParent returns the current element, which is not what we want for a selection.
+				var selection = ed.selection, tblElm;
+                node = node || selection.getNode().parentNode;
+                tblElm = ed.dom.getParent(node, 'table');
 
 				if (tblElm)
 					return new TableGrid(tblElm, ed.dom, selection);
@@ -864,9 +1309,12 @@
 				});
 
 				dom.bind(ed.getDoc(), 'mouseover', function(e) {
-					var sel, table, target = e.target;
+//					var sel, table, target = e.target;
 
-					if (startCell && (tableGrid || target != startCell) && (target.nodeName == 'TD' || target.nodeName == 'TH')) {
+//					if (startCell && (tableGrid || target != startCell) && (target.nodeName == 'TD' || target.nodeName == 'TH')) {
+                    // ATLASSIAN - fix table grid for images
+					var sel, table, target = dom.getParent(e.target, 'td,th');
+                    if (startCell && (tableGrid || target != startCell) && target) {
 						table = dom.getParent(target, 'table');
 						if (table == startTable) {
 							if (!tableGrid) {
@@ -961,6 +1409,18 @@
 					}
 				});
 
+                /**
+                 * ATLASSIAN: If we restore an undo snapshot that contains selected table cells with class="mceSelected", this
+                 * call back will ensure the user can reset the selection.
+                 *
+                 * At the moment cleanup(), which is responsible for stripping mceSelected, is guarded by the variable
+                 * hasCellSelection (which spocke introduced to fix performance issues which are related to doing running
+                 * a class selector over the DOM on each mouse down.
+                 */
+                ed.onUndo.add(function (ed, cm, e) {
+                    hasCellSelection = ed.dom.select("td.mceSelected, th.mceSelected").length > 0;
+                });
+
 				ed.onKeyUp.add(function(ed, e) {
 					cleanup();
 				});
@@ -976,23 +1436,23 @@
 				});
 				function tableCellSelected(ed, rng, n, currentCell) {
 					// The decision of when a table cell is selected is somewhat involved.  The fact that this code is
-					// required is actually a pointer to the root cause of this bug. A cell is selected when the start 
+					// required is actually a pointer to the root cause of this bug. A cell is selected when the start
 					// and end offsets are 0, the start container is a text, and the selection node is either a TR (most cases)
 					// or the parent of the table (in the case of the selection containing the last cell of a table).
-					var TEXT_NODE = 3, table = ed.dom.getParent(rng.startContainer, 'TABLE'), 
+					var TEXT_NODE = 3, table = ed.dom.getParent(rng.startContainer, 'TABLE'),
 					tableParent, allOfCellSelected, tableCellSelection;
-					if (table) 
+					if (table)
 					tableParent = table.parentNode;
-					allOfCellSelected =rng.startContainer.nodeType == TEXT_NODE && 
-						rng.startOffset == 0 && 
-						rng.endOffset == 0 && 
-						currentCell && 
+					allOfCellSelected =rng.startContainer.nodeType == TEXT_NODE &&
+						rng.startOffset == 0 &&
+						rng.endOffset == 0 &&
+						currentCell &&
 						(n.nodeName=="TR" || n==tableParent);
-					tableCellSelection = (n.nodeName=="TD"||n.nodeName=="TH")&& !currentCell;	   
+					tableCellSelection = (n.nodeName=="TD"||n.nodeName=="TH")&& !currentCell;
 					return  allOfCellSelected || tableCellSelection;
 					// return false;
 				}
-				
+
 				// this nasty hack is here to work around some WebKit selection bugs.
 				function fixTableCellSelection(ed) {
 					if (!tinymce.isWebKit)
@@ -1001,18 +1461,18 @@
 					var rng = ed.selection.getRng();
 					var n = ed.selection.getNode();
 					var currentCell = ed.dom.getParent(rng.startContainer, 'TD,TH');
-				
+
 					if (!tableCellSelected(ed, rng, n, currentCell))
 						return;
 						if (!currentCell) {
 							currentCell=n;
 						}
-					
+
 					// Get the very last node inside the table cell
 					var end = currentCell.lastChild;
 					while (end.lastChild)
 						end = end.lastChild;
-					
+
 					// Select the entire table cell. Nothing outside of the table cell should be selected.
 					rng.setEnd(end, end.nodeValue.length);
 					ed.selection.setRng(rng);
@@ -1144,10 +1604,10 @@
 						}
 
 						function getChildForDirection(parent, up) {
-							var child =  parent && parent[up ? 'lastChild' : 'firstChild'];
-							// BR is not a valid table child to return in this case we return the table cell
-							return child && child.nodeName === 'BR' ? ed.dom.getParent(child, 'td,th') : child;
-						}
+                            var child =  parent && parent[up ? 'lastChild' : 'firstChild'];
+                            // BR is not a valid table child to return in this case we return the table cell
+                            return child && child.nodeName === 'BR' ? ed.dom.getParent(child, 'td,th') : child;
+                        }
 
 						function moveCursorToStartOfElement(n) {
 							ed.selection.setCursorLocation(n, 0);
@@ -1197,7 +1657,7 @@
 							var newNode = ed.selection.getNode();
 							var newParent = ed.dom.getParent(newNode, 'td,th');
 							var oldParent = ed.dom.getParent(preBrowserNode, 'td,th');
-							return newParent && newParent !== oldParent && checkSameParentTable(newParent, oldParent)
+							return newParent && newParent !== oldParent && checkSameParentTable(newParent, oldParent);
 						}
 
 						function checkSameParentTable(nodeOne, NodeTwo) {
@@ -1216,11 +1676,15 @@
 
 					ed.onKeyDown.add(moveSelection);
 				}
-								
+
 				// Fixes an issue on Gecko where it's impossible to place the caret behind a table
 				// This fix will force a paragraph element after the table but only when the forced_root_block setting is enabled
 				if (!tinymce.isIE) {
 					function fixTableCaretPos() {
+						/*
+					     * ATLASSIAN - this processing is not needed. We use our own CursorTargetPlugin instead to ensure
+					     * a table is always surrounded in paragraphs if needed.
+
 						var last;
 
 						// Skip empty text nodes form the end
@@ -1228,6 +1692,7 @@
 
 						if (last && last.nodeName == 'TABLE')
 							ed.dom.add(ed.getBody(), 'p', null, '<br mce_bogus="1" />');
+					     */
 					};
 
 					// Fixes an bug where it's impossible to place the caret before a table in Gecko
@@ -1262,12 +1727,18 @@
 					ed.onSetContent.add(fixTableCaretPos);
 					ed.onVisualAid.add(fixTableCaretPos);
 
+/*
+    ATLASSIAN: CONF-24090 - The purpose of this listener is to remove the paragraph that is added after the last table on the page to allow
+    the cursor to be placed after it. Since we have commented out the "adding" of this paragraph above (since we have our own
+    cursor target plugin that handles this, we should similarly comment out this listener removes this extra paragraph on cleanup (which is typically run before save)
+
 					ed.onPreProcess.add(function(ed, o) {
 						var last = o.node.lastChild;
 
 						if (last && last.childNodes.length == 1 && last.firstChild.nodeName == 'BR')
 							ed.dom.remove(last);
 					});
+*/
 
 
 					/**
@@ -1292,6 +1763,46 @@
 				}
 			});
 
+            // ATLASSIAN move these later
+            function storeRowCells(cells) {
+                var cellsToSave = [],
+                    cellString = "";
+
+                for(var i = 0; i < cells.length; i++) {
+                    cellsToSave.push(AJS.Rte.getEditor().serializer.serialize(cells[i]));
+                }
+
+                // ATLASSIAN
+                cellString = "<tr>" + cellsToSave.join("</tr><tr>") + "</tr>";
+                storageManager.setItem("copied",cellString,(60 * 60) * 2); //replace with something other than a comma.
+            }
+
+            // ATLASSIAN : FYI: IE will generate an error if you try to set the innerHTML of a table. See this for more information:
+            // http://support.microsoft.com/kb/239832
+            function retriveRowCells() {
+                var rows = [],
+                    cellString = storageManager.getItem("copied") || "",
+                    element;
+
+                if(cellString) {
+                    element = ed.getDoc().createElement("div");
+                    element.innerHTML = "<table>" + cellString + "</table>";
+                    rows = $(element).find('tr');
+                }
+
+                return rows;
+            }
+
+			// ATLASSIAN - CONFDEV-31957 Copy/Paste Column support
+            function storeColumnCells(cells) {
+                storageManager.setItem("copiedCols", JSON.stringify(cells));
+            }
+
+			// ATLASSIAN - CONFDEV-31957 Copy/Paste Column support
+            function retrieveColumnCells() {
+                return JSON.parse(storageManager.getItem("copiedCols")) || {};
+            }
+
 			// Register action commands
 			each({
 				mceTableSplitCells : function(grid) {
@@ -1306,23 +1817,12 @@
 						rowSpan = cell.rowSpan;
 						colSpan = cell.colSpan;
 					}
+                    //ATLASSIAN: removed the modal popup for non selected cells.
+                    //check if we can do something and merge.
+					if (ed.dom.select('td.mceSelected,th.mceSelected').length) {
+                        grid.merge();
+					}
 
-					if (!ed.dom.select('td.mceSelected,th.mceSelected').length) {
-						winMan.open({
-							url : url + '/merge_cells.htm',
-							width : 240 + parseInt(ed.getLang('table.merge_cells_delta_width', 0)),
-							height : 110 + parseInt(ed.getLang('table.merge_cells_delta_height', 0)),
-							inline : 1
-						}, {
-							rows : rowSpan,
-							cols : colSpan,
-							onaction : function(data) {
-								grid.merge(cell, data.cols, data.rows);
-							},
-							plugin_url : url
-						});
-					} else
-						grid.merge();
 				},
 
 				mceTableInsertRowBefore : function(grid) {
@@ -1331,6 +1831,16 @@
 
 				mceTableInsertRowAfter : function(grid) {
 					grid.insertRow();
+				},
+
+				// ATLASSIAN CONFDEV-31959
+				mceTableInsertNumberingCol: function(grid) {
+					grid.insertNumCol();
+				},
+
+				// ATLASSIAN CONFDEV-31959
+				mceTableUpdateNumberingCol: function(grid) {
+					grid.updateNumCol();
 				},
 
 				mceTableInsertColBefore : function(grid) {
@@ -1351,23 +1861,75 @@
 
 				mceTableCutRow : function(grid) {
 					clipboardRows = grid.cutRows();
+                    storeRowCells(clipboardRows);
 				},
 
 				mceTableCopyRow : function(grid) {
 					clipboardRows = grid.copyRows();
+                    storeRowCells(clipboardRows);
 				},
 
 				mceTablePasteRowBefore : function(grid) {
-					grid.pasteRows(clipboardRows, true);
+					grid.pasteRows(retriveRowCells(), true);
 				},
 
 				mceTablePasteRowAfter : function(grid) {
-					grid.pasteRows(clipboardRows);
+					grid.pasteRows(retriveRowCells());
 				},
 
 				mceTableDelete : function(grid) {
 					grid.deleteTable();
-				}
+				},
+
+                /**
+                 * ATLASSIAN
+                 */
+                mceTableMoveCaretToNextCell : function(grid) {
+                    grid.moveCaretToNextCell();
+                },
+
+                /**
+                 * ATLASSIAN
+                 */
+                mceTableMoveCaretToPrevCell : function(grid) {
+                    grid.moveCaretToPrevCell();
+                },
+
+                /**
+                 * ATLASSIAN
+                 */
+                mceTableCopyCol : function(grid) {
+                    clipboardColumns = grid.copyColumns();
+                    storeColumnCells(clipboardColumns);
+                },
+
+                /**
+                 * ATLASSIAN
+                 */
+                mceTableCutCol : function(grid) {
+                    clipboardColumns = grid.cutColumns();
+                    storeColumnCells(clipboardColumns);
+                },
+
+                /**
+                 * ATLASSIAN
+                 */
+                mceTablePasteColBefore : function(grid) {
+                    var columns = retrieveColumnCells();
+                    if(grid.prepareTableForColPasteAndCheckIfNeedToRepaint(columns)) {
+                        ed.execCommand('mceRepaint');
+                        grid = createTableGrid();
+                    }
+                    grid.pasteColumns(columns, true);
+                },
+
+                /**
+                 * ATLASSIAN
+                 */
+                mceTablePasteColAfter : function(grid) {
+                    grid.pasteColumns(retrieveColumnCells(), false);
+                }
+
 			}, function(func, name) {
 				ed.addCommand(name, function() {
 					var grid = createTableGrid();
@@ -1425,4 +1987,4 @@
 
 	// Register plugin
 	tinymce.PluginManager.add('table', tinymce.plugins.TablePlugin);
-})(tinymce);
+})(tinymce, AJS.$);

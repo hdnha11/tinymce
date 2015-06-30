@@ -392,6 +392,7 @@
 			return self;
 		},
 
+        // ATLASSIAN - CONF-24365
 		/**
 		 * Returns true/false if the node is to be considered empty or not.
 		 *
@@ -401,41 +402,46 @@
 		 * @param {Object} elements Name/value object with elements that are automatically treated as non empty elements.
 		 * @return {Boolean} true/false if the node is empty or not.
 		 */
-		isEmpty : function(elements) {
-			var self = this, node = self.firstChild, i, name;
+ 		isEmpty : function(schema) {
+             schema = schema || new tinymce.html.Schema();
 
-			if (node) {
-				do {
-					if (node.type === 1) {
-						// Ignore bogus elements
-						if (node.attributes.map['data-mce-bogus'])
-							continue;
+ 			var self = this, node = self.firstChild, i, name,
+                 nonEmptyElements = schema.getNonEmptyElements(),
+                 whiteSpaceElements = schema.getWhiteSpaceElements();
 
-						// Keep empty elements like <img />
-						if (elements[node.name])
-							return false;
+ 			if (node) {
+ 				do {
+ 					if (node.type === 1) {
+ 						// Ignore bogus elements
+ 						if (node.attributes.map['data-mce-bogus'])
+ 							continue;
 
-						// Keep elements with data attributes or name attribute like <a name="1"></a>
-						i = node.attributes.length;
-						while (i--) {
-							name = node.attributes[i].name;
-							if (name === "name" || name.indexOf('data-') === 0)
-								return false;
-						}
-					}
+ 						// Keep empty elements like <img />
+ 						if (nonEmptyElements[node.name])
+ 							return false;
+
+ 						// Keep elements with data attributes or name attribute like <a name="1"></a>
+ 						i = node.attributes.length;
+ 						while (i--) {
+ 							name = node.attributes[i].name;
+ 							if (name === "name" || name.indexOf('data-') === 0)
+ 								return false;
+ 						}
+ 					}
 
 					// Keep comments
 					if (node.type === 8)
 						return false;
-					
-					// Keep non whitespace text nodes
-					if ((node.type === 3 && !whiteSpaceRegExp.test(node.value)))
+
+					// Keep non whitespace text nodes / ATLASSIAN
+ 					if (node.type === 3 && (!whiteSpaceRegExp.test(node.value) // this is a non-white-space text node that we want to keep
+                             || (whiteSpaceElements[self.name] && node.value && node.value.length > 0 && whiteSpaceRegExp.test(node.value)))) // this is a white space element containing a text node with one or more spaces that we want to keep
 						return false;
 				} while (node = walk(node, self));
 			}
 
-			return true;
-		},
+ 			return true;
+ 		},
 
 		/**
 		 * Walks to the next or previous node and returns that node or null if it wasn't found.

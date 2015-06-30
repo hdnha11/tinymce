@@ -77,8 +77,9 @@ function selectByValue(form_obj, field_name, value, add_custom, ignore_case) {
 	var sel = form_obj.elements[field_name];
 
 	var found = false;
+    var option;
 	for (var i=0; i<sel.options.length; i++) {
-		var option = sel.options[i];
+		option = sel.options[i];
 
 		if (option.value == value || (ignore_case && option.value.toLowerCase() == value.toLowerCase())) {
 			option.selected = true;
@@ -88,7 +89,7 @@ function selectByValue(form_obj, field_name, value, add_custom, ignore_case) {
 	}
 
 	if (!found && add_custom && value != '') {
-		var option = new Option(value, value);
+		option = new Option(value, value);
 		option.selected = true;
 		sel.options[sel.options.length] = option;
 		sel.selectedIndex = sel.options.length - 1;

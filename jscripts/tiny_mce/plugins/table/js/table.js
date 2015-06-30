@@ -1,169 +1,36 @@
-tinyMCEPopup.requireLangPack();
+//tinyMCEPopup.requireLangPack();
 
-var action, orgTableWidth, orgTableHeight, dom = tinyMCEPopup.editor.dom;
+//var action, orgTableWidth, orgTableHeight, dom = tinyMCEPopup.editor.dom;
 
-function insertTable() {
-	var formObj = document.forms[0];
-	var inst = tinyMCEPopup.editor, dom = inst.dom;
-	var cols = 2, rows = 2, border = 0, cellpadding = -1, cellspacing = -1, align, width, height, className, caption, frame, rules;
+/**
+ * ATLASSIAN (scoping function) - there are some functions defined in this block that we don't want to promote to being global functions
+ */
+(function () {
+AJS.$.extend(tinymce.plugins.TablePlugin.prototype, {
+insertTable : function(action) {
+	var formObj = AJS.$("#tinymce-table-form")[0]; //ATLASSIAN
+	var inst = AJS.Rte.getEditor(), dom = inst.dom; //ATLASSIAN
+	var cols = 2, rows = 2, border = 0, cellpadding = -1, cellspacing = -1, align, width, height, className = tinymce.settings.confluence_table_style, caption, frame, rules, style = "";
 	var html = '', capEl, elm;
-	var cellLimit, rowLimit, colLimit;
-
-	tinyMCEPopup.restoreSelection();
-
-	if (!AutoValidator.validate(formObj)) {
-		tinyMCEPopup.alert(AutoValidator.getErrorMessages(formObj).join('. ') + '.');
-		return false;
-	}
 
 	elm = dom.getParent(inst.selection.getNode(), 'table');
+
+    /**
+     * Custom ATLASSIAN form fields
+     */
+    var heading, equalWidthColumns;
+    heading = formObj.elements['heading'].checked;
+    equalWidthColumns = formObj.elements['equal-width-columns'].checked;
 
 	// Get form data
 	cols = formObj.elements['cols'].value;
 	rows = formObj.elements['rows'].value;
-	border = formObj.elements['border'].value != "" ? formObj.elements['border'].value : 0;
-	cellpadding = formObj.elements['cellpadding'].value != "" ? formObj.elements['cellpadding'].value : "";
-	cellspacing = formObj.elements['cellspacing'].value != "" ? formObj.elements['cellspacing'].value : "";
-	align = getSelectValue(formObj, "align");
-	frame = getSelectValue(formObj, "tframe");
-	rules = getSelectValue(formObj, "rules");
-	width = formObj.elements['width'].value;
-	height = formObj.elements['height'].value;
-	bordercolor = formObj.elements['bordercolor'].value;
-	bgcolor = formObj.elements['bgcolor'].value;
-	className = getSelectValue(formObj, "class");
-	id = formObj.elements['id'].value;
-	summary = formObj.elements['summary'].value;
-	style = formObj.elements['style'].value;
-	dir = formObj.elements['dir'].value;
-	lang = formObj.elements['lang'].value;
-	background = formObj.elements['backgroundimage'].value;
-	caption = formObj.elements['caption'].checked;
 
-	cellLimit = tinyMCEPopup.getParam('table_cell_limit', false);
-	rowLimit = tinyMCEPopup.getParam('table_row_limit', false);
-	colLimit = tinyMCEPopup.getParam('table_col_limit', false);
-
-	// Validate table size
-	if (colLimit && cols > colLimit) {
-		tinyMCEPopup.alert(inst.getLang('table_dlg.col_limit').replace(/\{\$cols\}/g, colLimit));
-		return false;
-	} else if (rowLimit && rows > rowLimit) {
-		tinyMCEPopup.alert(inst.getLang('table_dlg.row_limit').replace(/\{\$rows\}/g, rowLimit));
-		return false;
-	} else if (cellLimit && cols * rows > cellLimit) {
-		tinyMCEPopup.alert(inst.getLang('table_dlg.cell_limit').replace(/\{\$cells\}/g, cellLimit));
-		return false;
-	}
-
-	// Update table
-	if (action == "update") {
-		dom.setAttrib(elm, 'cellPadding', cellpadding, true);
-		dom.setAttrib(elm, 'cellSpacing', cellspacing, true);
-
-		if (!isCssSize(border)) {
-			dom.setAttrib(elm, 'border', border);
-		} else {
-			dom.setAttrib(elm, 'border', '');
-		}
-
-		if (border == '') {
-			dom.setStyle(elm, 'border-width', '');
-			dom.setStyle(elm, 'border', '');
-			dom.setAttrib(elm, 'border', '');
-		}
-
-		dom.setAttrib(elm, 'align', align);
-		dom.setAttrib(elm, 'frame', frame);
-		dom.setAttrib(elm, 'rules', rules);
-		dom.setAttrib(elm, 'class', className);
-		dom.setAttrib(elm, 'style', style);
-		dom.setAttrib(elm, 'id', id);
-		dom.setAttrib(elm, 'summary', summary);
-		dom.setAttrib(elm, 'dir', dir);
-		dom.setAttrib(elm, 'lang', lang);
-
-		capEl = inst.dom.select('caption', elm)[0];
-
-		if (capEl && !caption)
-			capEl.parentNode.removeChild(capEl);
-
-		if (!capEl && caption) {
-			capEl = elm.ownerDocument.createElement('caption');
-
-			if (!tinymce.isIE)
-				capEl.innerHTML = '<br data-mce-bogus="1"/>';
-
-			elm.insertBefore(capEl, elm.firstChild);
-		}
-
-		if (width && inst.settings.inline_styles) {
-			dom.setStyle(elm, 'width', width);
-			dom.setAttrib(elm, 'width', '');
-		} else {
-			dom.setAttrib(elm, 'width', width, true);
-			dom.setStyle(elm, 'width', '');
-		}
-
-		// Remove these since they are not valid XHTML
-		dom.setAttrib(elm, 'borderColor', '');
-		dom.setAttrib(elm, 'bgColor', '');
-		dom.setAttrib(elm, 'background', '');
-
-		if (height && inst.settings.inline_styles) {
-			dom.setStyle(elm, 'height', height);
-			dom.setAttrib(elm, 'height', '');
-		} else {
-			dom.setAttrib(elm, 'height', height, true);
-			dom.setStyle(elm, 'height', '');
- 		}
-
-		if (background != '')
-			elm.style.backgroundImage = "url('" + background + "')";
-		else
-			elm.style.backgroundImage = '';
-
-/*		if (tinyMCEPopup.getParam("inline_styles")) {
-			if (width != '')
-				elm.style.width = getCSSSize(width);
-		}*/
-
-		if (bordercolor != "") {
-			elm.style.borderColor = bordercolor;
-			elm.style.borderStyle = elm.style.borderStyle == "" ? "solid" : elm.style.borderStyle;
-			elm.style.borderWidth = cssSize(border);
-		} else
-			elm.style.borderColor = '';
-
-		elm.style.backgroundColor = bgcolor;
-		elm.style.height = getCSSSize(height);
-
-		inst.addVisual();
-
-		// Fix for stange MSIE align bug
-		//elm.outerHTML = elm.outerHTML;
-
-		inst.nodeChanged();
-		inst.execCommand('mceEndUndoLevel', false, {}, {skip_undo: true});
-
-		// Repaint if dimensions changed
-		if (formObj.width.value != orgTableWidth || formObj.height.value != orgTableHeight)
-			inst.execCommand('mceRepaint');
-
-		tinyMCEPopup.close();
-		return true;
-	}
+	width = AJS.$("#tinymce-table-form input[name='width']").val(); //ATLASSIAN
 
 	// Create new table
 	html += '<table';
 
-	html += makeAttrib('id', id);
-	if (!isCssSize(border)) {
-		html += makeAttrib('border', border);
-	}
-
-	html += makeAttrib('cellpadding', cellpadding);
-	html += makeAttrib('cellspacing', cellspacing);
 	html += makeAttrib('data-mce-new', '1');
 
 	if (width && inst.settings.inline_styles) {
@@ -178,41 +45,38 @@ function insertTable() {
 	} else
 		html += makeAttrib('width', width);
 
-/*	if (height) {
-		if (style)
-			style += '; ';
-
-		style += 'height: ' + height;
-	}*/
-
-	//html += makeAttrib('height', height);
-	//html += makeAttrib('bordercolor', bordercolor);
-	//html += makeAttrib('bgcolor', bgcolor);
-	html += makeAttrib('align', align);
-	html += makeAttrib('frame', frame);
-	html += makeAttrib('rules', rules);
 	html += makeAttrib('class', className);
 	html += makeAttrib('style', style);
-	html += makeAttrib('summary', summary);
-	html += makeAttrib('dir', dir);
-	html += makeAttrib('lang', lang);
 	html += '>';
-
-	if (caption) {
-		if (!tinymce.isIE)
-			html += '<caption><br data-mce-bogus="1"/></caption>';
-		else
-			html += '<caption></caption>';
-	}
 
 	for (var y=0; y<rows; y++) {
 		html += "<tr>";
 
+        // ATLASSIAN
+		function capitaliseFirstChar(str) {
+			return str.charAt(0).toUpperCase() + str.substring(1, str.length);
+		}
+
 		for (var x=0; x<cols; x++) {
-			if (!tinymce.isIE)
-				html += '<td><br data-mce-bogus="1"/></td>';
-			else
-				html += '<td></td>';
+			var elementName, widthDeclaration, cellClassName;
+			if(y == 0 && heading) {
+				elementName = "th";
+				cellClassName = tinymce.settings.confluence_table_heading_style;
+			} else {
+				elementName = "td";
+				cellClassName = tinymce.settings.confluence_table_cell_style;
+			}
+			if (equalWidthColumns) {
+				widthDeclaration = " width=\"" + (Math.round((100 / cols) * 100) / 100) + "%\"";
+			}
+
+			html += "<" + elementName + (widthDeclaration ? widthDeclaration : "") + " class=\"" + cellClassName + "\">";
+			if (!tinymce.isIE || tinymce.isIE11) {
+				html += "<br data-mce-bogus=\"1\"/>";
+			} else if(tinymce.isIE9) {
+                html += "&nbsp;"; // ATLASSIAN - CONFDEV-5592
+            }
+			html += "</" + elementName + ">";
 		}
 
 		html += "</tr>";
@@ -224,7 +88,10 @@ function insertTable() {
 	if (inst.settings.fix_table_elements) {
 		var patt = '';
 
-		inst.focus();
+        //ATLASSIAN
+		//inst.focus();
+        AJS.Rte.BookmarkManager.restoreBookmark();
+
 		inst.selection.setContent('<br class="_mce_marker" />');
 
 		tinymce.each('h1,h2,h3,h4,h5,h6,p'.split(','), function(n) {
@@ -238,23 +105,36 @@ function insertTable() {
 			inst.dom.split(inst.dom.getParent(n, 'h1,h2,h3,h4,h5,h6,p'), n);
 		});
 
-		dom.setOuterHTML(dom.select('br._mce_marker')[0], html);
+		// ATLASSIAN - should be using selection.setContent instead of setOuterHTML to ensure that any selection.onSetContent listeners are called.
+		var marker = dom.select('br._mce_marker')[0];
+		inst.selection.select(marker);
+		inst.selection.setContent(html);
+
+		// ATLASSIAN - clean up the marker if it is still present
+		inst.dom.remove(marker);
 	} else
 		inst.execCommand('mceInsertContent', false, html);
 
 	tinymce.each(dom.select('table[data-mce-new]'), function(node) {
-		// Fixes a bug in IE where the caret cannot be placed after the table if the table is at the end of the document
-		if (tinymce.isIE && node.nextSibling == null) {
-			dom.insertAfter(dom.create('p'), node);
-		}
+        //ATLASSIAN
+		//// Fixes a bug in IE where the caret cannot be placed after the table if the table is at the end of the document
+		//if (tinymce.isIE && node.nextSibling == null) {
+		//	dom.insertAfter(dom.create('p'), node);
+		//}
 
-		var tdorth = dom.select('td,th', node);
+		//var tdorth = dom.select('td,th', node);
+
+        //ATLASSIAN: puts the cursor in the first row
+        //Could possibly use a first-child selector but this is a little more robust if we ever do thead/tbody etc
+        var selector = heading ? 'th' : 'td',
+            tdorth = dom.select(selector, node);
+
 		try {
 			// IE9 might fail to do this selection 
 			inst.selection.setCursorLocation(tdorth[0], 0);
 		} catch (ex) {
 			// Ignore
-		}
+        }
 
 		dom.setAttrib(node, 'data-mce-new', '');
 	});
@@ -262,8 +142,9 @@ function insertTable() {
 	inst.addVisual();
 	inst.execCommand('mceEndUndoLevel', false, {}, {skip_undo: true});
 
-	tinyMCEPopup.close();
+	//tinyMCEPopup.close();
 }
+});
 
 function makeAttrib(attrib, value) {
 	var formObj = document.forms[0];
@@ -298,7 +179,7 @@ function init() {
 
 	var cols = 2, rows = 2, border = tinyMCEPopup.getParam('table_default_border', '0'), cellpadding = tinyMCEPopup.getParam('table_default_cellpadding', ''), cellspacing = tinyMCEPopup.getParam('table_default_cellspacing', '');
 	var align = "", width = "", height = "", bordercolor = "", bgcolor = "", className = "";
-	var id = "", summary = "", style = "", dir = "", lang = "", background = "", bgcolor = "", bordercolor = "", rules = "", frame = "";
+	var id = "", summary = "", style = "", dir = "", lang = "", background = "", rules = "", frame = "";
 	var inst = tinyMCEPopup.editor, dom = inst.dom;
 	var formObj = document.forms[0];
 	var elm = dom.getParent(inst.selection.getNode(), "table");
@@ -310,12 +191,11 @@ function init() {
 
 	if (elm && action != "insert") {
 		var rowsAr = elm.rows;
-		var cols = 0;
+		cols = 0;
 		for (var i=0; i<rowsAr.length; i++)
 			if (rowsAr[i].cells.length > cols)
 				cols = rowsAr[i].cells.length;
 
-		cols = cols;
 		rows = rowsAr.length;
 
 		st = dom.parseStyle(dom.getAttrib(elm, "style"));
@@ -485,4 +365,5 @@ function changedStyle() {
 	}
 }
 
-tinyMCEPopup.onInit.add(init);
+//tinyMCEPopup.onInit.add(init);
+})(); // there are some functions defined in this block that we don't want to promote to being global functions

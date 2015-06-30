@@ -83,7 +83,7 @@
 						currentNode = tempNode;
 					}
 
-					if (!newParent.isEmpty(nonEmptyElements)) {
+					if (!newParent.isEmpty(schema)) { // ATLASSIAN: CONF-24365
 						parent.insert(newParent, parents[0], true);
 						parent.insert(node, newParent);
 					} else {
@@ -92,7 +92,7 @@
 
 					// Check if the element is empty by looking through it's contents and special treatment for <p><br /></p>
 					parent = parents[0];
-					if (parent.isEmpty(nonEmptyElements) || parent.firstChild === parent.lastChild && parent.firstChild.name === 'br') {
+					if (parent.isEmpty(schema) /* ATLASSIAN: CONF-24365 */ || parent.firstChild === parent.lastChild && parent.firstChild.name === 'br') {
 						parent.empty().remove();
 					}
 				} else if (node.parent) {
@@ -424,7 +424,9 @@
 							}
 
 							// Trim start white space
-							textNode = node.prev;
+							// ATLASSIAN: CONFDEV-9932: Applied patch 4bec9d8b8 by Spoke
+							// Removed due to: #5424
+							/*textNode = node.prev;
 							if (textNode && textNode.type === 3) {
 								text = textNode.value.replace(startWhiteSpaceRegExp, '');
 
@@ -432,12 +434,12 @@
 									textNode.value = text;
 								else
 									textNode.remove();
-							}
+							}*/
 						}
 
 						// Handle empty nodes
 						if (elementRule.removeEmpty || elementRule.paddEmpty) {
-							if (node.isEmpty(nonEmptyElements)) {
+							if (node.isEmpty(schema)) { // ATLASSIAN: CONF-24365
 								if (elementRule.paddEmpty)
 									node.empty().append(new Node('#text', '3')).value = '\u00a0';
 								else {
@@ -557,7 +559,7 @@
 							node.remove();
 
 							// Is the parent to be considered empty after we removed the BR
-							if (parent.isEmpty(nonEmptyElements)) {
+							if (parent.isEmpty(schema)) { // ATLASSIAN: CONF-24365
 								elementRule = schema.getElementRule(parent.name);
 
 								// Remove or padd the element depending on schema rule
@@ -567,7 +569,7 @@
 								  else if (elementRule.paddEmpty)
 									  parent.empty().append(new tinymce.html.Node('#text', 3)).value = '\u00a0';
 							  }
-              }
+							}
 						}
 					}
 				}

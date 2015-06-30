@@ -834,7 +834,7 @@
 				custom_undo_redo_keyboard_shortcuts : 1,
 				custom_undo_redo_restore_selection : 1,
 				custom_undo_redo : 1,
-				doctype : tinymce.isIE6 ? '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">' : '<!DOCTYPE>', // Use old doctype on IE 6 to avoid horizontal scroll
+				doctype : tinymce.isIE6 ? '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">' : '<!DOCTYPE html>', // ATLASSIAN, Use old doctype on IE 6 to avoid horizontal scroll
 				visual_table_class : 'mceItemTable',
 				visual : 1,
 				font_size_style_values : 'xx-small,x-small,small,medium,large,x-large,xx-large',
@@ -912,8 +912,9 @@
 		render : function(nst) {
 			var t = this, s = t.settings, id = t.id, sl = tinymce.ScriptLoader;
 
+			// ATLASSIAN - No need for this as we initialise TinyMCE on DOM ready
 			// Page is not loaded yet, wait for it
-			if (!Event.domLoaded) {
+			if (!s.atlassian && !Event.domLoaded) {
 				Event.add(document, 'init', function() {
 					t.render();
 				});
@@ -1013,8 +1014,9 @@
 
 			// Load scripts
 			function loadScripts() {
-				if (s.language && s.language_load !== false)
-					sl.add(tinymce.baseURL + '/langs/' + s.language + '.js');
+                // ATLASSIAN - No need to load any scripts, all loaded via #requireResource
+				//if (s.language && s.language_load !== false)
+					//sl.add(tinymce.baseURL + '/langs/' + s.language + '.js');
 
 				if (s.theme && s.theme.charAt(0) != '-' && !ThemeManager.urls[s.theme])
 					ThemeManager.load(s.theme, 'themes/' + s.theme + '/editor_template' + tinymce.suffix + '.js');
@@ -1040,11 +1042,17 @@
 					}
 				});
 
+                //ATLASSIAN - No need to use the script loader, just init immediately
 				// Init when que is loaded
-				sl.loadQueue(function() {
-					if (!t.removed)
-						t.init();
-				});
+                function initTinyMce() {
+                    if (!t.removed)
+                        t.init();
+                }
+                if(s.atlassian) {
+                    initTinyMce();
+                } else {
+                    sl.loadQueue(initTinyMce);
+                }
 			};
 
 			loadScripts();
@@ -1095,6 +1103,7 @@
 						po.init(t, u);
 						initializedPlugins.push(p);
 					}
+					AJS.debug("initPlugin: " + p + " initialised"); // ATLASSIAN
 				}
 			}
 			
@@ -1208,16 +1217,22 @@
 				});
 			}
 
-			h = (o.iframeHeight || h) + (typeof(h) == 'number' ? (o.deltaHeight || 0) : '');
+            //ATLASSIAN
+            //we no longer have toolbars so we dont need to worry about this deltaHeight
+            //to save people looking the deltaheight is made up of the toolbar heights - some magic number deep in the advanced theme. No fun.
+            //so please leave this commented out
+			//h = (o.iframeHeight || h) + (typeof(h) == 'number' ? (o.deltaHeight || 0) : '');
 			if (h < 100)
 				h = 100;
 
+            // ATLASSIAN - use the user's current base url for the iframe
+            AJS.debug("Editor:init iframe base href=" + AJS.Rte.getCurrentBaseUrl());
 			t.iframeHTML = s.doctype + '<html><head xmlns="http://www.w3.org/1999/xhtml">';
 
 			// We only need to override paths if we have to
 			// IE has a bug where it remove site absolute urls to relative ones if this is specified
 			if (s.document_base_url != tinymce.documentBaseURL)
-				t.iframeHTML += '<base href="' + t.documentBaseURI.getURI() + '" />';
+                t.iframeHTML += '<base href="' + AJS.Rte.getCurrentBaseUrl() + '" />';
 
 			// IE8 doesn't support carets behind images setting ie7_compat would force IE8+ to run in IE7 compat mode.
 			if (s.ie7_compat)
@@ -1231,6 +1246,10 @@
 			for (i = 0; i < t.contentCSS.length; i++) {
 				t.iframeHTML += '<link type="text/css" rel="stylesheet" href="' + t.contentCSS[i] + '" />';
 			}
+            // ATLASSIAN - we want to put our custom link tag markup into the frame
+            if (s.contentCssTags) {
+                t.iframeHTML += s.contentCssTags;
+            }
 
 			t.contentCSS = [];
 
@@ -1246,7 +1265,7 @@
 				bc = bc[t.id] || '';
 			}
 
-			t.iframeHTML += '</head><body id="' + bi + '" class="mceContentBody ' + bc + '" onload="window.parent.tinyMCE.get(\'' + t.id + '\').onLoad.dispatch();"><br></body></html>';
+			t.iframeHTML += '</head><body id="' + bi + '" class="mceContentBody aui-theme-default ' + bc + '" onload="window.parent.tinyMCE.get(\'' + t.id + '\').onLoad.dispatch();"><br></body></html>';
 
 			// Domain relaxing enabled, then set document domain
 			if (tinymce.relaxedDomain && (isIE || (tinymce.isOpera && parseFloat(opera.version()) < 11))) {
@@ -1413,7 +1432,7 @@
 				while (i--) {
 					node = nodes[i];
 
-					if (node.isEmpty(nonEmptyElements))
+					if (node.isEmpty(t.schema)) // ATLASSIAN: CONF-24365
 						node.empty().append(new tinymce.html.Node('br', 1)).shortEnded = true;
 				}
 			});
@@ -1458,17 +1477,20 @@
 			t.formatter.register({
 				alignleft : [
 					{selector : 'p,h1,h2,h3,h4,h5,h6,td,th,div,ul,ol,li', styles : {textAlign : 'left'}},
+                    {selector : 'img.confluence-embedded-image', classes : "image-left"}, // ATLASSIAN: introduce class to encompass default style and image margins
 					{selector : 'img,table', collapsed : false, styles : {'float' : 'left'}}
 				],
 
 				aligncenter : [
 					{selector : 'p,h1,h2,h3,h4,h5,h6,td,th,div,ul,ol,li', styles : {textAlign : 'center'}},
-					{selector : 'img', collapsed : false, styles : {display : 'block', marginLeft : 'auto', marginRight : 'auto'}},
+					//{selector : 'img', collapsed : false, styles : {display : 'block', marginLeft : 'auto', marginRight : 'auto'}},
+                    {selector : 'img.confluence-embedded-image', classes : "image-center"}, // ATLASSIAN: introduce class to encompass default style and image margins
 					{selector : 'table', collapsed : false, styles : {marginLeft : 'auto', marginRight : 'auto'}}
 				],
 
 				alignright : [
 					{selector : 'p,h1,h2,h3,h4,h5,h6,td,th,div,ul,ol,li', styles : {textAlign : 'right'}},
+                    {selector : 'img.confluence-embedded-image', classes : "image-right"}, // ATLASSIAN: introduce class to encompass default style and image margins
 					{selector : 'img,table', collapsed : false, styles : {'float' : 'right'}}
 				],
 
@@ -1489,13 +1511,13 @@
 				],
 
 				underline : [
-					{inline : 'span', styles : {textDecoration : 'underline'}, exact : true},
-					{inline : 'u', remove : 'all'}
+					{inline : 'u', remove : 'all'},
+					{inline : 'span', styles : {textDecoration : 'underline'}, exact : true} //ATLASSIAN: prefer semantic tag over inline style
 				],
 
 				strikethrough : [
-					{inline : 'span', styles : {textDecoration : 'line-through'}, exact : true},
-					{inline : 'strike', remove : 'all'}
+//					{inline : 'span', styles : {textDecoration : 'line-through'}, exact : true}, ATLASSIAN: prefer semantic tag over inline style
+					{inline : 's', remove : 'all'} // ATLASSIAN: use S instead of STRIKE
 				],
 
 				forecolor : {inline : 'span', styles : {color : '%value'}, wrap_links : false},
@@ -1574,6 +1596,7 @@
 				return t.onPostProcess.dispatch(t, o, se);
 			});
 
+			AJS.debug("Editor:setupIframe: dispatch onPreInit");
 			t.onPreInit.dispatch(t);
 
 			if (!s.gecko_spellcheck)
@@ -1582,7 +1605,10 @@
 			if (!s.readonly)
 				t._addEvents();
 
+			AJS.debug("Editor:setupIframe: dispatch controlManager onPostRender");
 			t.controlManager.onPostRender.dispatch(t, t.controlManager);
+
+			AJS.debug("Editor:setupIframe: dispatch onPostRender");
 			t.onPostRender.dispatch(t);
 
 			t.quirks = new tinymce.util.Quirks(this);
@@ -1753,12 +1779,16 @@
 			 */
 			t.initialized = true;
 
+			AJS.debug("Editor:setupIframe: dispatch onInit");
 			t.onInit.dispatch(t);
+			AJS.debug("Editor:setupIframe: Callback setupcontent_callback");
 			t.execCallback('setupcontent_callback', t.id, t.getBody(), t.getDoc());
+			AJS.debug("Editor:setupIframe: Completed setupcontent_callback");
+			AJS.debug("Editor:setupIframe: Callback init_instance_callback");
 			t.execCallback('init_instance_callback', t);
+			AJS.debug("Editor:setupIframe: Completed init_instance_callback");
 			t.focus(true);
 			t.nodeChanged({initial : 1});
-
 			// Load specified content CSS last
 			each(t.contentCSS, function(u) {
 				t.dom.loadCSS(u);
@@ -1887,7 +1917,8 @@
 		 * @param {Boolean} sf Skip DOM focus. Just set is as the active editor.
 		 */
 		focus : function(sf) {
-			var oed, t = this, selection = t.selection, ce = t.settings.content_editable, ieRng, controlElm, doc = t.getDoc();
+            var oed, t = this, selection = t.selection, ce = t.settings.content_editable, ieRng, controlElm, doc = t.getDoc(),
+                win, vp;
 
 			if (!sf) {
 				// Get selected control element
@@ -1899,8 +1930,21 @@
 				t._refreshContentEditable();
 
 				// Is not content editable
-				if (!ce)
-					t.getWin().focus();
+				if (!ce) {
+                    // ATLASSIAN CONFDDEV-6815 & CONFDEV-7399 IE focuses the body if there are multiple contenteditables and you call window.focus().
+                    if (tinymce.isIE) {
+                        try{
+                            win = this.getWin();
+                            vp = DOM.getViewPort(win);
+                            t.dom.getRoot().focus();
+                            win.scrollTo(vp.x, vp.y);
+                        } catch (e){
+                            //fails when editor isn't yet visible (instant comment/edit initilization)
+                        }
+                    } else {
+                        t.getWin().focus();
+                    }
+				}
 
 				// Focus the body as well since it's contentEditable
 				if (tinymce.isGecko) {
@@ -2266,6 +2310,7 @@
 			if (!/^(mceAddUndoLevel|mceEndUndoLevel|mceBeginUndoLevel|mceRepaint|SelectAll)$/.test(cmd) && (!a || !a.skip_focus))
 				t.focus();
 
+			// ATLASSIAN
 			a = extend({}, a);
 			t.onBeforeExecCommand.dispatch(t, cmd, ui, val, a);
 			if (a.terminate)
@@ -2502,11 +2547,17 @@
 			o = o || {};
 			o.save = true;
 
-			// Add undo level will trigger onchange event
-			if (!o.no_events) {
-				t.undoManager.typing = false;
-				t.undoManager.add();
-			}
+            // ATLASSIAN - CONFDEV-21949
+            // Sometimes a WrongDocumentError can be thrown, and if not caught will cause content loss because
+            // the textarea won't have its value updated to the editor content.
+            try {
+                if (!o.no_events) {
+                    t.undoManager.typing = false;
+                    t.undoManager.add();
+                }
+            } catch(e) {
+                AJS.logError("editor.save() : " + e);
+            }
 
 			o.element = e;
 			h = o.content = t.getContent(o);
@@ -2584,7 +2635,8 @@
 				body.innerHTML = content;
 				self.selection.select(body, true);
 				self.selection.collapse(true);
-				return;
+				// ATLASSIAN - we want setContent events so continue relates to testing of CONFDEV-16140.
+				//return;
 			}
 
 			// Parse and serialize the html
@@ -2665,6 +2717,13 @@
 
 			return tinymce.trim(self.startContent) != tinymce.trim(self.getContent({format : 'raw', no_events : 1})) && !self.isNotDirty;
 		},
+
+        //ATLASSIAN - this method was available in older versions, but we still need it
+		setDirty : function(dirty) {
+            var t = this;
+
+            t.isNotDirty = dirty ? 0 : 1;
+        },
 
 		/**
 		 * Returns the editors container element. The container element wrappes in
@@ -3036,7 +3095,8 @@
 				if (e.keyCode != VK.BACKSPACE)
 					return;
 
-				var rng = ed.selection.getRng();
+				// ATLASSIAN
+				var rng = ed.selection.getRng(true);
 				if (!rng.collapsed)
 					return;
 
@@ -3047,7 +3107,7 @@
 					n = n.parentNode;
 
 				// Is the cursor at the beginning of a blockquote?
-				if (n && n.parentNode && n.parentNode.tagName === 'BLOCKQUOTE' && n.parentNode.firstChild == n && offset == 0) {
+				if (n && n.parentNode && n.parentNode.tagName === 'BLOCKQUOTE' && n.parentNode.firstChild == n && offset === 0) {
 					// Remove the blockquote
 					ed.formatter.toggle('blockquote', null, n.parentNode);
 
@@ -3078,13 +3138,15 @@
 				t.addShortcut('ctrl+i', t.getLang('italic_desc'), 'Italic');
 				t.addShortcut('ctrl+u', t.getLang('underline_desc'), 'Underline');
 
+                // ATLASSIAN - Leave these shortcuts commented out. We add them ourselves in
+                // the keyboard shortcut plugin
 				// BlockFormat shortcuts keys
-				for (i=1; i<=6; i++)
-					t.addShortcut('ctrl+' + i, '', ['FormatBlock', false, 'h' + i]);
+				//for (i=1; i<=6; i++)
+				//	t.addShortcut('ctrl+' + i, '', ['FormatBlock', false, 'h' + i]);
 
-				t.addShortcut('ctrl+7', '', ['FormatBlock', false, 'p']);
-				t.addShortcut('ctrl+8', '', ['FormatBlock', false, 'div']);
-				t.addShortcut('ctrl+9', '', ['FormatBlock', false, 'address']);
+				//t.addShortcut('ctrl+7', '', ['FormatBlock', false, 'p']);
+				//t.addShortcut('ctrl+8', '', ['FormatBlock', false, 'div']);
+				//t.addShortcut('ctrl+9', '', ['FormatBlock', false, 'address']);
 
 				function find(e) {
 					var v = null;
@@ -3093,7 +3155,9 @@
 						return v;
 
 					each(t.shortcuts, function(o) {
-						if (tinymce.isMac && o.ctrl != e.metaKey)
+						//if (tinymce.isMac && o.ctrl != e.metaKey)
+                        //ATLASSIAN - We allow both the cmd and ctrl modifiers on OSX
+						if (tinymce.isMac && (o.ctrl != e.metaKey && o.ctrl != e.ctrlKey))
 							return;
 						else if (!tinymce.isMac && o.ctrl != e.ctrlKey)
 							return;

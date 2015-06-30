@@ -169,11 +169,14 @@
 
 			t.urls[n] = url.substring(0, url.lastIndexOf('/'));
 
-			if (t.lookup[n]) {
-				loadDependencies();
-			} else {
-				tinymce.ScriptLoader.add(url, loadDependencies, s);
-			}
+            // ATLASSIAN - We load the scripts via requireResources
+            if(!tinymce.settings.atlassian) {
+                if (t.lookup[n]) {
+                    loadDependencies();
+                } else {
+                    tinymce.ScriptLoader.add(url, loadDependencies, s);
+                }
+            }
 		}
 	});
 

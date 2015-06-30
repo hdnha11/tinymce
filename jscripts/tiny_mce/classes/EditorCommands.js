@@ -180,11 +180,24 @@
 			'JustifyLeft,JustifyCenter,JustifyRight,JustifyFull' : function(command) {
 				var align = command.substring(7);
 
+                //ATLASSIAN: adding an undo level
+                editor.undoManager.add();
+                //ATLASSIAN: get the current selection and node before remove() is called
+                var curSelection = selection.getRng();
+                var curNode = selection.getNode();
+
 				// Remove all other alignments first
 				each('left,center,right,full'.split(','), function(name) {
 					if (align != name)
 						formatter.remove('align' + name);
-				});
+
+                    //ATLASSIAN CONFDEV-3905: Sometimes the range gets messed up when removing format if an
+                    //image is involved, reset it to what it was if so.
+				    if (!tinyMCE.isIE && (curNode.nodeName == "IMG") && ((selection.getRng().startContainer.nodeName == "#document")
+                            || (selection.getRng().startContainer.nodeName == "#text"))) {
+                        selection.setRng(curSelection);
+                    }
+                });
 
 				toggleFormat('align' + align);
 				execCommand('mceRepaint');
@@ -309,8 +322,9 @@
 				value = value.replace(/\{\$caret\}/, bookmarkHtml);
 
 				// Insert node maker where we will insert the new HTML and get it's parent
-				if (!selection.isCollapsed())
-					editor.getDoc().execCommand('Delete', false, null);
+                // ATLASSIAN - make don't delete an empty selection as FF will add a NBSP
+ 				if (!selection.isCollapsed() && selection.getContent().length)
+                    editor.execCommand('mceDelete', false, null, {skip_undo: true}); // ATLASSIAN: CONF-23691: skip undo since the native command doesn't add an undo step either
 
 				parentNode = selection.getNode();
 
@@ -434,7 +448,7 @@
 				indentUnit = /[a-z%]+$/i.exec(intentValue);
 				intentValue = parseInt(intentValue);
 
-				if (!queryCommandState('InsertUnorderedList') && !queryCommandState('InsertOrderedList')) {
+				if (!queryCommandState('InsertUnorderedList') && !queryCommandState('InsertOrderedList') && !queryCommandState('InsertInlineTaskList')) {
 					each(selection.getSelectedBlocks(), function(element) {
 						if (command == 'outdent') {
 							value = Math.max(0, parseInt(element.style.paddingLeft || 0) - intentValue);
@@ -500,7 +514,7 @@
 				// Apply new link to selection
 				if (value.href) {
 					formatter.apply('link', value, anchor);
-				}
+						}
 			},
 
 			selectAll : function() {
@@ -546,11 +560,23 @@
 						return TRUE;
 				}
 
-				return queryCommandState('InsertUnorderedList') || queryCommandState('InsertOrderedList') || (!settings.inline_styles && !!dom.getParent(selection.getNode(), 'BLOCKQUOTE'));
+				return queryCommandState('InsertUnorderedList') || queryCommandState('InsertOrderedList') || queryCommandState('InsertInlineTaskList')
+                        || (!settings.inline_styles && !!dom.getParent(selection.getNode(), 'BLOCKQUOTE'));
 			},
 
-			'InsertUnorderedList,InsertOrderedList' : function(command) {
-				return dom.getParent(selection.getNode(), command == 'insertunorderedlist' ? 'UL' : 'OL');
+            /* ATLASSIAN - Add task list support */
+			'InsertUnorderedList,InsertOrderedList,InsertInlineTaskList' : function(command) {
+                var list = dom.getParent(selection.getNode(), 'ul,ol');
+                var tagName;
+
+                if(!list)
+                    return false;
+
+                tagName = list.tagName;
+
+                return (tagName === 'OL') && (command === 'insertorderedlist')
+                      || (tagName === 'UL') && !dom.hasClass(list, 'inline-task-list') && (command === 'insertunorderedlist')
+                      || (tagName === 'UL') && dom.hasClass(list, 'inline-task-list') && (command === 'insertinlinetasklist');
 			}
 		}, 'state');
 

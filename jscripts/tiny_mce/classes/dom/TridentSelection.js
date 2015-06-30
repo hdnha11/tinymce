@@ -256,7 +256,8 @@
 				var node, parent, root, children, i, indexes = [];
 
 				parent = node.parentNode;
-				root = dom.getRoot().parentNode;
+				//CONFDEV-6472 Bookmark indexes should start from the body
+				root = dom.doc.body.parentNode;
 
 				while (parent != root && parent.nodeType !== 9) {
 					children = parent.children;
@@ -311,7 +312,8 @@
 			function resolveIndexes(indexes) {
 				var node, i, idx, children;
 
-				node = dom.getRoot();
+				//CONFDEV-6472 Bookmark indexes should start from the body
+				node = dom.doc.body;
 				for (i = indexes.length - 1; i >= 0; i--) {
 					children = node.children;
 					idx = indexes[i];

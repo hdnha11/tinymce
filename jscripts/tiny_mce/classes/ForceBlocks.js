@@ -64,6 +64,9 @@
 				selection.select(block, 1);
 			}
 
+			// ATLASSIAN - CONFDEV-3749 - make sure new element is visible
+			AJS.Rte.showSelection();
+
 			return FALSE;
 		}
 
@@ -91,17 +94,27 @@
 			// Force root blocks
 			if (s.forced_root_block) {
 				function addRootBlocks() {
-					var node = selection.getStart(), rootNode = ed.getBody(), rng, startContainer, startOffset, endContainer, endOffset, rootBlockNode, tempNode, offset = -0xFFFFFF;
+					//ATLASSIAN - CONFDEV-6096/CONFDEV-6478/others - Call getRoot instead of just grabbing the body
+					var node = selection.getStart(), rootNode = dom.getRoot(), body = ed.getDoc().body, rng, startContainer, startOffset, endContainer, endOffset, rootBlockNode, tempNode, offset = -0xFFFFFF;
 
-					if (!node || node.nodeType !== 1)
+					function isValidNode(node) {
+						return (node && node.nodeType === 1);
+					}
+
+					if(!isValidNode(node)) {
 						return;
+					}
 
 					// Check if node is wrapped in block
 					while (node != rootNode) {
-						if (blockElements[node.nodeName])
+						if(isValidNode(node)) {
+							if (blockElements[node.nodeName]) {
+								return;
+							}
+							node = node.parentNode;
+						} else {
 							return;
-
-						node = node.parentNode;
+						}
 					}
 
 					// Get current selection
@@ -152,8 +165,10 @@
 						selection.setRng(rng);
 					} else {
 						try {
-							rng = ed.getDoc().body.createTextRange();
-							rng.moveToElementText(rootNode);
+							rng = body.createTextRange();
+							//ATLASSIAN - CONFDEV-7363/CONFDEV-7364 - Move selection back as far as possible before moving it to offsets
+							rng.moveToElementText(body);
+							rng.move('character', offset);
 							rng.collapse(true);
 							rng.moveStart('character', startOffset);
 
@@ -170,6 +185,12 @@
 				};
 
 				ed.onKeyUp.add(addRootBlocks);
+				// ATLASSIAN CONFDEV-8468
+				// We also need to addRootBlocks on KeyDown because code is sometimes
+				// triggered by a keyPress that occurs before the keyUp event of the
+				// previous keystroke. We want to make sure that root blocks are in
+				// place by the time such code is executed (e.g. autoformat handlers)
+				ed.onKeyDown.add(addRootBlocks);
 				ed.onClick.add(addRootBlocks);
 			}
 
@@ -197,50 +218,62 @@
 						if (e.keyCode == 13 && !e.shiftKey && !t.insertPara(e))
 							Event.cancel(e);
 					});
-				} else {
-					// Ungly hack to for IE to preserve the formatting when you press
-					// enter at the end of a block element with formatted contents
-					// This logic overrides the browsers default logic with
-					// custom logic that enables us to control the output
-					tinymce.addUnload(function() {
-						t._previousFormats = 0; // Fix IE leak
-					});
-
-					ed.onKeyPress.add(function(ed, e) {
-						t._previousFormats = 0;
-
-						// Clone the current formats, this will later be applied to the new block contents
-						if (e.keyCode == 13 && !e.shiftKey && ed.selection.isCollapsed() && s.keep_styles)
-							t._previousFormats = cloneFormats(ed.selection.getStart());
-					});
-
-					ed.onKeyUp.add(function(ed, e) {
-						// Let IE break the element and the wrap the new caret location in the previous formats
-						if (e.keyCode == 13 && !e.shiftKey) {
-							var parent = ed.selection.getStart(), fmt = t._previousFormats;
-
-							// Parent is an empty block
-							if (!parent.hasChildNodes() && fmt) {
-								parent = dom.getParent(parent, dom.isBlock);
-
-								if (parent && parent.nodeName != 'LI') {
-									parent.innerHTML = '';
-
-									if (t._previousFormats) {
-										parent.appendChild(fmt.wrapper);
-										fmt.inner.innerHTML = '\uFEFF';
-									} else
-										parent.innerHTML = '\uFEFF';
-
-									selection.select(parent, 1);
-									selection.collapse(true);
-									ed.getDoc().execCommand('Delete', false, null);
-									t._previousFormats = 0;
-								}
-							}
-						}
-					});
 				}
+
+/*
+ * ATLASSIAN - the code below doesn't seem to be necessary for correct new line and formatting behaviour
+ * for IE8 and later versions. This code creates CONFDEV-9088 which is actually more generic than inline
+ * tasks alone.
+ *
+ * Hitting enter after any list item containing a child element such as a span (for text colour,
+ * carried over from the inline task placeholder, etc.) isn't able to escape the list. This bug is currently
+ * reproducible in the tinyMCE demo.
+ */
+//                else {
+//					// Ungly hack to for IE to preserve the formatting when you press
+//					// enter at the end of a block element with formatted contents
+//					// This logic overrides the browsers default logic with
+//					// custom logic that enables us to control the output
+//					tinymce.addUnload(function() {
+//						t._previousFormats = 0; // Fix IE leak
+//					});
+//
+//					ed.onKeyPress.add(function(ed, e) {
+//						t._previousFormats = 0;
+//
+//						// Clone the current formats, this will later be applied to the new block contents
+//						if (e.keyCode == 13 && !e.shiftKey && ed.selection.isCollapsed() && s.keep_styles) {
+//							t._previousFormats = cloneFormats(ed.selection.getStart());
+//                        }
+//					});
+//
+//					ed.onKeyUp.add(function(ed, e) {
+//						// Let IE break the element and the wrap the new caret location in the previous formats
+//						if (e.keyCode == 13 && !e.shiftKey) {
+//							var parent = ed.selection.getStart(), fmt = t._previousFormats;
+//
+//							// Parent is an empty block
+//							if (!parent.hasChildNodes() && fmt) {
+//								parent = dom.getParent(parent, dom.isBlock);
+//
+//								if (parent && parent.nodeName != 'LI') {
+//                                    parent.innerHTML = '';
+//
+//                                    if (t._previousFormats) {
+//                                        parent.appendChild(fmt.wrapper);
+//                                        fmt.inner.innerHTML = '\uFEFF';
+//                                    } else
+//                                        parent.innerHTML = '\uFEFF';
+//
+//                                    selection.select(parent, 1);
+//                                    selection.collapse(true);
+//                                    ed.getDoc().execCommand('Delete', false, null);
+//                                    t._previousFormats = 0;
+//								}
+//							}
+//						}
+//					});
+//				}
 
 				if (isGecko) {
 					ed.onKeyDown.add(function(ed, e) {
@@ -253,7 +286,7 @@
 			// Workaround for missing shift+enter support, http://bugs.webkit.org/show_bug.cgi?id=16973
 			if (tinymce.isWebKit) {
 				function insertBr(ed) {
-					var rng = selection.getRng(), br, div = dom.create('div', null, ' '), divYPos, vpHeight = dom.getViewPort(ed.getWin()).h;
+					var rng = selection.getRng(), br, div = dom.create('div', null, ' '), divYPos, divHeight, vpPos = dom.getViewPort(ed.getWin());
 
 					// Insert BR element
 					rng.insertNode(br = dom.create('br'));
@@ -273,11 +306,14 @@
 					// seems like getPos() returns 0 for text nodes and BR elements.
 					dom.insertAfter(div, br);
 					divYPos = dom.getPos(div).y;
+					divHeight = dom.getSize(div).h;
 					dom.remove(div);
 
 					// Scroll to new position, scrollIntoView can't be used due to bug: http://bugs.webkit.org/show_bug.cgi?id=16117
-					if (divYPos > vpHeight) // It is not necessary to scroll if the DIV is inside the view port.
-						ed.getWin().scrollTo(0, divYPos);
+					var divBottom = divYPos + divHeight;
+					var vpBottom = vpPos.y + vpPos.h;
+					if (divBottom > vpBottom) // It is not necessary to scroll if the DIV is inside the view port.
+						ed.getWin().scrollTo(0, divBottom - vpPos.h);
 				};
 
 				ed.onKeyPress.add(function(ed, e) {
@@ -355,6 +391,46 @@
 			en = dir ? s.focusNode : s.anchorNode;
 			eo = dir ? s.focusOffset : s.anchorOffset;
 
+			/**
+			 * ATLASSIAN: Fix CONF-18922 (must be before the fix below regarding a start node of TD or TH).
+			 *
+			 * Hitting ENTER when the cursor is after a table in webkit should not send the cursor to the top of the page.
+			 *
+			 * The reason why this occurs is because this function (i.e. insertPara) considers a range with startContainer
+			 * equal to the BODY element to be illegal and accordingly "adjusts" this by setting the startContainer to
+			 * the first child of the BODY element (explaining why the cursor jumps to the top).
+			 *
+			 * Bypass this with this code.
+			 *
+			 * NOTE: as long as the fix still exists regarding TD or TH's directly below this, this code should come before.
+			 * This will another issue which happens when you hit ENTER after a table "nested inside a table cell" (i.e.
+			 * You would get this markup: <p>foo<table />bar</p><p>THIS IS THE NEW PARAGRAPH inserted by insertPara</p>).
+			 */
+			var table;
+			if (tinymce.isWebKit && sn === en /* deal with collapsed selections only */
+				&& sn.nodeType === 1
+				&& sn.childNodes.length > 0
+				&& ed.dom.is(table = sn.childNodes[so > 0 ? so - 1 : 0], "table")) {
+				/**
+				 * default webkit browser behaviour is jittery (possibly because it creates a BR and then transitions to a P)
+				 * do our own paragraph insertion
+				 */
+				var newParagraph = dom.create('p', 0, '<br data-mce-bogus="1" />');
+				dom.insertAfter(newParagraph, table);
+
+				r.setStart(newParagraph, 0);
+				ed.selection.setRng(r);
+
+				var yPos = ed.dom.getPos(newParagraph).y;
+				if (yPos > vp.y) {
+					ed.getWin().scrollTo(0, yPos);
+				}
+
+				ed.undoManager.add();
+
+				return FALSE;
+			}
+
 			// If selection is in empty table cell
 			if (sn === en && /^(TD|TH)$/.test(sn.nodeName)) {
 				if (sn.firstChild.nodeName == 'BR')
@@ -400,6 +476,20 @@
 			sn = sn.nodeName == "BODY" ? sn.firstChild : sn;
 			en = en.nodeName == "HTML" ? d.body : en; // Fix for Opera bug: https://bugs.opera.com/show_bug.cgi?id=273224&comments=yes
 			en = en.nodeName == "BODY" ? en.firstChild : en;
+
+
+			// ATLASSIAN Never use the root node as the start or end node, otherwise elements
+			// may get inserted outside of the root node. Firefox tends to include the contenteditable
+			// element itself in the selection on Ctrl/Cmd+A.
+			var root = ed.dom.getRoot();
+			if (sn.nodeName == root.nodeName) {
+				sn = sn.firstChild;
+				so = 0;
+			}
+			if (en.nodeName == root.nodeName) {
+				en = en.firstChild;
+				eo = 0;
+			}
 
 			// Get start and end blocks
 			sb = t.getParentBlock(sn);
@@ -538,7 +628,7 @@
 				} else
 					e.innerHTML = isOpera ? '\u00a0' : '<br />'; // Extra space for Opera so that the caret can move there
 			};
-				
+
 			// Padd empty blocks
 			if (dom.isEmpty(bef))
 				appendStyles(bef, sn);
@@ -586,6 +676,15 @@
 		backspaceDelete : function(e, bs) {
 			var t = this, ed = t.editor, b = ed.getBody(), dom = ed.dom, n, se = ed.selection, r = se.getRng(), sc = r.startContainer, n, w, tn, walker;
 
+			/**
+			 * ATLASSIAN: Since backspaceDelete() is meant to supplement the default backspace behaviour in firefox, it should
+			 * respect when the backspace key event's default action has been prevented - i.e. don't do anything :)
+			 */
+			var defaultPrevented = e.getPreventDefault ? e.getPreventDefault() : e.defaultPrevented; // e.defaultPrevented is available on firefox 6+
+			if (defaultPrevented) {
+				return;
+			}
+
 			// Delete when caret is behind a element doesn't work correctly on Gecko see #3011651
 			if (!bs && r.collapsed && sc.nodeType == 1 && r.startOffset == sc.childNodes.length) {
 				walker = new tinymce.dom.TreeWalker(sc.lastChild, sc);
@@ -627,6 +726,43 @@
 						}
 
 						return Event.cancel(e);
+					}
+				}
+			}
+
+			// ATLASSIAN - CONFDEV-5383 Gecko doesn't delete the paragraph properly and leaves the br behind
+			// This workaround explicitly removes the whole element and moves cursor to the next text node.
+			if (!bs && r.collapsed && /^(BODY)$/.test(sc.nodeName)) {
+				var selected = sc.childNodes[r.startOffset];
+				if (selected && ed.dom.isBlock(selected) && !/^(TD|TH)$/.test(selected.nodeName)) {
+					if (selected.childNodes.length == 0 || (selected.childNodes.length == 1 && selected.firstChild.nodeName == 'BR')) {
+						n = selected;
+						var next;
+						while ((n = n.nextSibling)) {
+							if (ed.dom.isBlock(n)) {
+								next = n;
+								break;
+							}
+						}
+
+						if (next) {
+							if (selected != b.lastChild) {
+								// Find first text node
+								w = ed.dom.doc.createTreeWalker(next, NodeFilter.SHOW_TEXT, null, FALSE);
+								next = w.nextNode();
+
+								// Place caret at the start of first text node
+								r = ed.getDoc().createRange();
+								r.setStart(next, 0);
+								r.setEnd(next, 0);
+								se.setRng(r);
+
+								// Remove the target container
+								ed.dom.remove(selected);
+
+								return Event.cancel(e);
+							}
+						}
 					}
 				}
 			}

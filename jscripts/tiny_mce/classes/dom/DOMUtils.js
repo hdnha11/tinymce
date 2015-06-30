@@ -657,46 +657,46 @@
 				var s = t.settings;
 				var originalValue = e.getAttribute(n);
 				if (v !== null) {
-					switch (n) {
-						case "style":
-							if (!is(v, 'string')) {
-								each(v, function(v, n) {
-									t.setStyle(e, n, v);
-								});
+				switch (n) {
+					case "style":
+						if (!is(v, 'string')) {
+							each(v, function(v, n) {
+								t.setStyle(e, n, v);
+							});
 
-								return;
-							}
+							return;
+						}
 
-							// No mce_style for elements with these since they might get resized by the user
-							if (s.keep_values) {
-								if (v && !t._isRes(v))
-									e.setAttribute('data-mce-style', v, 2);
-								else
-									e.removeAttribute('data-mce-style', 2);
-							}
+						// No mce_style for elements with these since they might get resized by the user
+						if (s.keep_values) {
+							if (v && !t._isRes(v))
+								e.setAttribute('data-mce-style', v, 2);
+							else
+								e.removeAttribute('data-mce-style', 2);
+						}
 
-							e.style.cssText = v;
-							break;
+						e.style.cssText = v;
+						break;
 
-						case "class":
-							e.className = v || ''; // Fix IE null bug
-							break;
+					case "class":
+						e.className = v || ''; // Fix IE null bug
+						break;
 
-						case "src":
-						case "href":
-							if (s.keep_values) {
-								if (s.url_converter)
-									v = s.url_converter.call(s.url_converter_scope || t, v, n, e);
+					case "src":
+					case "href":
+						if (s.keep_values) {
+							if (s.url_converter)
+								v = s.url_converter.call(s.url_converter_scope || t, v, n, e);
 
-								t.setAttrib(e, 'data-mce-' + n, v, 2);
-							}
+							t.setAttrib(e, 'data-mce-' + n, v, 2);
+						}
 
-							break;
+						break;
 
-						case "shape":
-							e.setAttribute('data-mce-style', v);
-							break;
-					}
+					case "shape":
+						e.setAttribute('data-mce-style', v);
+						break;
+				}
 				}
 				if (is(v) && v !== null && v.length !== 0)
 					e.setAttribute(n, '' + v, 2);
@@ -1593,6 +1593,7 @@
 
 						// Keep empty elements like <img />
 						name = node.nodeName.toLowerCase();
+
 						if (elements && elements[name]) {
 							// Ignore single BR elements in blocks like <p><br /></p>
 							parentNode = node.parentNode;
@@ -1607,8 +1608,9 @@
 						attributes = self.getAttribs(node);
 						i = node.attributes.length;
 						while (i--) {
-							name = node.attributes[i].nodeName;
-							if (name === "name" || name === 'data-mce-bookmark')
+							// ATLASSIAN - CONFDEV-6327 ensure we don't report a pagelayout as being empty
+							name = node.attributes[i].nodeName.toLowerCase();
+							if (name === "name" || name === 'data-mce-bookmark' || (name === 'contenteditable' && node.attributes[i].value === 'true'))
 								return false;
 						}
 					}
@@ -1768,9 +1770,9 @@
 
 				// Insert middle chunk
 				if (re)
-				pa.replaceChild(re, e);
-			else
-				pa.insertBefore(e, pe);
+					pa.replaceChild(re, e);
+				else
+					pa.insertBefore(e, pe);
 
 				// Insert after chunk
 				pa.insertBefore(trim(aft), pe);

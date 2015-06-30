@@ -282,25 +282,30 @@
 			serialize : function(node, args) {
 				var impl, doc, oldDoc, htmlSerializer, content;
 
+				// ATLASSIAN - CONF-28665
+				// The hack for IE when some elements were present (style, etc.) was not creating a valid node
+				// Disabled the hack and tested in IE8/IE9 (style elements are being cloned correctly)
+				// The hack seems to affect versions of IE < 8: http://www.tinymce.com/develop/bugtracker_view.php?id=4670
+
 				// Explorer won't clone contents of script and style and the
 				// selected index of select elements are cleared on a clone operation.
-				if (isIE && dom.select('script,style,select,map').length > 0) {
-					content = node.innerHTML;
-					node = node.cloneNode(false);
-					dom.setHTML(node, content);
-				} else
-					node = node.cloneNode(true);
+//				if (isIE && dom.select('script,style,select,map').length > 0) {
+//					content = node.innerHTML;
+//					node = node.cloneNode(true);
+//					dom.setHTML(node, content);
+//				} else
+				node = node.cloneNode(true);
 
 				// Nodes needs to be attached to something in WebKit/Opera
 				// Older builds of Opera crashes if you attach the node to an document created dynamically
-				// and since we can't feature detect a crash we need to sniff the acutal build number
+				// and since we can't feature detect a crash we need to sniff the actual build number
 				// This fix will make DOM ranges and make Sizzle happy!
 				impl = node.ownerDocument.implementation;
 				if (impl.createHTMLDocument) {
 					// Create an empty HTML document
 					doc = impl.createHTMLDocument("");
 
-					// Add the element or it's children if it's a body element to the new document
+					// Add the element or its children if it's a body element to the new document
 					each(node.nodeName == 'BODY' ? node.childNodes : [node], function(node) {
 						doc.body.appendChild(doc.importNode(node, true));
 					});

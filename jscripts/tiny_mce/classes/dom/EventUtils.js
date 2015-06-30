@@ -84,7 +84,7 @@
 				e = e || window.event;
 
 				// Patch in target, preventDefault and stopPropagation in IE it's W3C valid
-				if (e && isIE) {
+				if (e && isIE && !tinymce.isIE11) { // ATLASSIAN - added a check for IE 11 since preventing default was no longer working
 					if (!e.target)
 						e.target = e.srcElement;
 

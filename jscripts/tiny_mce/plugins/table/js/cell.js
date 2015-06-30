@@ -8,7 +8,7 @@ function init() {
 
 	document.getElementById('backgroundimagebrowsercontainer').innerHTML = getBrowserHTML('backgroundimagebrowser','backgroundimage','image','table');
 	document.getElementById('bordercolor_pickcontainer').innerHTML = getColorPickerHTML('bordercolor_pick','bordercolor');
-	document.getElementById('bgcolor_pickcontainer').innerHTML = getColorPickerHTML('bgcolor_pick','bgcolor')
+	document.getElementById('bgcolor_pickcontainer').innerHTML = getColorPickerHTML('bgcolor_pick','bgcolor');
 
 	var inst = ed;
 	var tdElm = ed.dom.getParent(ed.selection.getStart(), "td,th");
@@ -88,7 +88,9 @@ function updateAction() {
 		return;
 	}
 
-	switch (getSelectValue(formObj, 'action')) {
+    var cell, rows, i;
+
+    switch (getSelectValue(formObj, 'action')) {
 		case "cell":
 			var celltype = getSelectValue(formObj, 'celltype');
 			var scope = getSelectValue(formObj, 'scope');
@@ -117,7 +119,7 @@ function updateAction() {
 			break;
 
 		case "row":
-			var cell = trElm.firstChild;
+			cell = trElm.firstChild;
 
 			if (cell.nodeName != "TD" && cell.nodeName != "TH")
 				cell = nextCell(cell);
@@ -129,7 +131,9 @@ function updateAction() {
 			break;
 
 		case "col":
-			var curr, col = 0, cell = trElm.firstChild, rows = tableElm.getElementsByTagName("tr");
+			var curr, col = 0;
+            cell = trElm.firstChild;
+            rows = tableElm.getElementsByTagName("tr");
 
 			if (cell.nodeName != "TD" && cell.nodeName != "TH")
 				cell = nextCell(cell);
@@ -140,7 +144,7 @@ function updateAction() {
 				col += cell.getAttribute("colspan");
 			} while ((cell = nextCell(cell)) != null);
 
-			for (var i=0; i<rows.length; i++) {
+			for (i=0; i<rows.length; i++) {
 				cell = rows[i].firstChild;
 
 				if (cell.nodeName != "TD" && cell.nodeName != "TH")
@@ -159,10 +163,10 @@ function updateAction() {
 			break;
 
 		case "all":
-			var rows = tableElm.getElementsByTagName("tr");
+			rows = tableElm.getElementsByTagName("tr");
 
-			for (var i=0; i<rows.length; i++) {
-				var cell = rows[i].firstChild;
+			for (i=0; i<rows.length; i++) {
+				cell = rows[i].firstChild;
 
 				if (cell.nodeName != "TD" && cell.nodeName != "TH")
 					cell = nextCell(cell);

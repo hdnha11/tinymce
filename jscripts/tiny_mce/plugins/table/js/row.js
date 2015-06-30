@@ -53,7 +53,7 @@ function init() {
 }
 
 function updateAction() {
-	var inst = tinyMCEPopup.editor, dom = inst.dom, trElm, tableElm, formObj = document.forms[0];
+	var inst = tinyMCEPopup.editor, dom = inst.dom, trElm, tableElm, formObj = document.forms[0], rows, i;
 	var action = getSelectValue(formObj, 'action');
 
 	if (!AutoValidator.validate(formObj)) {
@@ -91,18 +91,18 @@ function updateAction() {
 			break;
 
 		case "all":
-			var rows = tableElm.getElementsByTagName("tr");
+			rows = tableElm.getElementsByTagName("tr");
 
-			for (var i=0; i<rows.length; i++)
+			for (i=0; i<rows.length; i++)
 				updateRow(rows[i], true);
 
 			break;
 
 		case "odd":
 		case "even":
-			var rows = tableElm.getElementsByTagName("tr");
+			rows = tableElm.getElementsByTagName("tr");
 
-			for (var i=0; i<rows.length; i++) {
+			for (i=0; i<rows.length; i++) {
 				if ((i % 2 == 0 && action == "odd") || (i % 2 != 0 && action == "even"))
 					updateRow(rows[i], true, true);
 			}
